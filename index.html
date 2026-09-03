@@ -1,1295 +1,921 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#FF7A00" />
-  <title>Assembleia de Deus - Dízimos</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+  <title>Sistema de Dízimos - Assembleia de Deus</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
   <script>window.react = window.React;</script>
-  <script src="https://unpkg.com/lucide-react@0.453.0/dist/umd/lucide-react.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide-react@0.525.0/dist/umd/lucide-react.min.js"></script>
   <style>
-    * { box-sizing: border-box; }
-    html, body, #root { margin: 0; min-height: 100%; }
-    body { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-    button:not(:disabled), [role="button"]:not([aria-disabled="true"]), input, select, textarea { font: inherit; }
-    button:not(:disabled), [role="button"]:not([aria-disabled="true"]), [type="button"]:not(:disabled), [type="submit"]:not(:disabled), [type="reset"]:not(:disabled), a[href], select:not(:disabled), input[type="checkbox"]:not(:disabled), input[type="radio"]:not(:disabled) { cursor: pointer; }
-    .flex { min-height: 0; min-width: 0; }
+    html, body, #root { width:100%; min-height:100%; margin:0; }
+    body { background:#f3f4f6; font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    .flex { min-height:0; min-width:0; }
+    #boot-error { display:none; position:fixed; inset:0; z-index:999999; background:#fff; color:#991b1b; padding:32px; font-family:system-ui,sans-serif; overflow:auto; }
+    #boot-error h1 { font-size:22px; font-weight:700; margin:0 0 10px; }
+    #boot-error pre { white-space:pre-wrap; background:#fef2f2; padding:16px; border-radius:12px; border:1px solid #fecaca; }
   </style>
 </head>
 <body>
   <div id="root"></div>
-  <script type="text/babel" data-presets="typescript,react" data-filename="app.tsx">
-const { useState, useEffect, useRef, useMemo } = React;
-const { 
-  PlusCircle, History, Users, UserSquare, 
-  Settings, Download, Upload, PieChart, TrendingUp, 
-  Search, Calendar, Printer, FileText, Trash2, Edit,
-  Save, CheckCircle, AlertTriangle, Menu, Church
-} = LucideReact;
+  <div id="boot-error"><h1>O sistema encontrou um erro ao iniciar.</h1><p>Copie a mensagem abaixo e me envie.</p><pre>Erro desconhecido.</pre></div>
+  <script>
+    window.addEventListener('error', function(event) {
+      var box=document.getElementById('boot-error'); if(!box) return;
+      box.style.display='block';
+      box.querySelector('pre').textContent=(event.message||'Erro ao iniciar')+(event.filename?'\n'+event.filename+':'+event.lineno:'');
+    });
+    window.addEventListener('unhandledrejection', function(event) {
+      var box=document.getElementById('boot-error'); if(!box) return;
+      box.style.display='block';
+      box.querySelector('pre').textContent=String(event.reason && (event.reason.stack||event.reason.message) || event.reason || 'Erro ao iniciar');
+    });
 
+    if (!window.React || !window.ReactDOM || !window.LucideReact) {
+      var box=document.getElementById('boot-error');
+      box.style.display='block';
+      box.querySelector('pre').textContent='Falha ao carregar React/ReactDOM/LucideReact. Verifique a conexão com a internet ou bloqueio de CDN.';
+    } else {
+const { useState, useEffect, useRef, useMemo } = React;
+const { PlusCircle, History, Users, UserSquare, Settings, Download, Upload, PieChart, TrendingUp, Search, Calendar, Printer, FileText, Trash2, Edit, Save, CheckCircle, AlertTriangle, Menu, Church } = LucideReact;
 // ==========================================
 // BANCO DE DADOS LOCAL (localStorage)
 // ==========================================
-const STORAGE_PREFIX = 'DizimosAssembleiaDB:';
-
-const readStore = (storeName: string): any[] => {
-  try {
-    const raw = localStorage.getItem(STORAGE_PREFIX + storeName);
-    return raw ? JSON.parse(raw) : [];
-  } catch (error) {
-    console.error(`Erro ao ler ${storeName} do localStorage:`, error);
-    return [];
-  }
+const STORAGE_PREFIX = 'DizimosAssembleiaDB_';
+const readStore = (storeName) => {
+    try {
+        const raw = localStorage.getItem(STORAGE_PREFIX + storeName);
+        if (!raw)
+            return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    }
+    catch (error) {
+        console.error(`Erro ao ler ${storeName}:`, error);
+        return [];
+    }
 };
-
-const writeStore = (storeName: string, items: any[]) => {
-  localStorage.setItem(STORAGE_PREFIX + storeName, JSON.stringify(items));
+const writeStore = (storeName, items) => {
+    localStorage.setItem(STORAGE_PREFIX + storeName, JSON.stringify(items));
 };
-
-const dbOp = async (storeName: string, operation: string, data: any = null): Promise<any> => {
-  const items = readStore(storeName);
-
-  if (operation === 'getAll' || operation === 'get') return items;
-
-  if (operation === 'put') {
-    const index = items.findIndex((item: any) => item.id === data.id);
-    if (index >= 0) items[index] = data;
-    else items.push(data);
-    writeStore(storeName, items);
-    return data;
-  }
-
-  if (operation === 'delete') {
-    writeStore(storeName, items.filter((item: any) => item.id !== data));
-    return undefined;
-  }
-
-  if (operation === 'clear') {
-    localStorage.removeItem(STORAGE_PREFIX + storeName);
-    return undefined;
-  }
-
-  return items;
+const dbOp = async (storeName, operation, data = null) => {
+    const items = readStore(storeName);
+    if (operation === 'getAll' || operation === 'get')
+        return items;
+    if (operation === 'put') {
+        const index = items.findIndex((item) => item.id === data.id);
+        if (index >= 0)
+            items[index] = data;
+        else
+            items.push(data);
+        writeStore(storeName, items);
+        return data;
+    }
+    if (operation === 'delete') {
+        writeStore(storeName, items.filter((item) => item.id !== data));
+        return undefined;
+    }
+    if (operation === 'clear') {
+        writeStore(storeName, []);
+        return undefined;
+    }
+    return items;
 };
-
 // ==========================================
 // UTILITÁRIOS
 // ==========================================
-const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+const formatCurrency = (value) => {
+    return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 };
-
-const parseCurrency = (valueString: string) => {
-  const onlyNumbers = valueString.replace(/\D/g, '');
-  return Number(onlyNumbers) / 100;
+const parseCurrency = (valueString) => {
+    const onlyNumbers = valueString.replace(/\D/g, '');
+    return Number(onlyNumbers) / 100;
 };
-
-const formatDate = (dateString: string) => {
-  const [year, month, day] = dateString.split('-');
-  return `${day}/${month}/${year}`;
+const formatDate = (dateString) => {
+    const [year, month, day] = dateString.split('-');
+    return `${day}/${month}/${year}`;
 };
-
 const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
-
 // ==========================================
 // COMPONENTES PRINCIPAIS
 // ==========================================
-
 function App() {
-  const [activeTab, setActiveTab] = useState('lancamento');
-  const [data, setData] = useState<Record<string, any>>({
-    tithes: [],
-    members: [],
-    secretaries: [],
-    churches: [],
-    settings: { id: 'main', churchName: 'Assembleia de Deus - Irineópolis', primaryColor: '#FF7A00', lastBackup: null }
-  });
-  const [isLoading, setIsLoading] = useState(true);
-  const [toast, setToast] = useState<any>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [isPrintingReport, setIsPrintingReport] = useState(false);
-
-  // Carregar dados iniciais
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const tithes = await dbOp('tithes', 'getAll') as any[];
-        const members = await dbOp('members', 'getAll') as any[];
-        const secretaries = await dbOp('secretaries', 'getAll') as any[];
-        const churches = await dbOp('churches', 'getAll').catch(() => []) as any[];
-        const settingsArr = await dbOp('settings', 'getAll') as any[];
-        
-        let settings = settingsArr.length > 0 ? settingsArr[0] : { id: 'main', churchName: 'Assembleia de Deus - Irineópolis', primaryColor: '#FF7A00', lastBackup: null };
-        
-        // Ordenação padrão: mais recente primeiro
-        tithes.sort((a: any, b: any) => b.timestamp - a.timestamp);
-        members.sort((a: any, b: any) => a.name.localeCompare(b.name));
-        secretaries.sort((a: any, b: any) => a.name.localeCompare(b.name));
-        churches.sort((a: any, b: any) => a.name.localeCompare(b.name));
-
-        setData((prev: any) => ({ ...prev, tithes, members, secretaries, churches, settings }));
-      } catch (error) {
-        console.error("Erro ao carregar dados:", error);
-      } finally {
-        setIsLoading(false);
-      }
+    const [activeTab, setActiveTab] = useState('lancamento');
+    const [data, setData] = useState({
+        tithes: [],
+        members: [],
+        secretaries: [],
+        churches: [],
+        settings: { id: 'main', churchName: 'Assembleia de Deus - Irineópolis', primaryColor: '#FF7A00', lastBackup: null }
+    });
+    const [isLoading, setIsLoading] = useState(true);
+    const [toast, setToast] = useState(null);
+    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [isPrintingReport, setIsPrintingReport] = useState(false);
+    // Carregar dados iniciais
+    useEffect(() => {
+        const loadData = async () => {
+            try {
+                const tithes = await dbOp('tithes', 'getAll');
+                const members = await dbOp('members', 'getAll');
+                const secretaries = await dbOp('secretaries', 'getAll');
+                const churches = await dbOp('churches', 'getAll').catch(() => []);
+                const settingsArr = await dbOp('settings', 'getAll');
+                let settings = settingsArr.length > 0 ? settingsArr[0] : { id: 'main', churchName: 'Assembleia de Deus - Irineópolis', primaryColor: '#FF7A00', lastBackup: null };
+                // Ordenação padrão: mais recente primeiro
+                tithes.sort((a, b) => b.timestamp - a.timestamp);
+                members.sort((a, b) => a.name.localeCompare(b.name));
+                secretaries.sort((a, b) => a.name.localeCompare(b.name));
+                churches.sort((a, b) => a.name.localeCompare(b.name));
+                setData((prev) => ({ ...prev, tithes, members, secretaries, churches, settings }));
+            }
+            catch (error) {
+                console.error("Erro ao carregar dados:", error);
+            }
+            finally {
+                setIsLoading(false);
+            }
+        };
+        loadData();
+    }, []);
+    // Verificar backup antigo
+    useEffect(() => {
+        if (data.settings.lastBackup) {
+            const daysSinceBackup = (Date.now() - data.settings.lastBackup) / (1000 * 60 * 60 * 24);
+            if (daysSinceBackup > 30) {
+                showToast("Atenção: Seu último backup tem mais de 30 dias. Recomendamos realizar um novo backup.", 'warning');
+            }
+        }
+        else if (!isLoading && data.tithes.length > 0) {
+            showToast("Atenção: Você ainda não realizou nenhum backup do sistema.", 'warning');
+        }
+    }, [isLoading, data.settings.lastBackup, data.tithes.length]);
+    const showToast = (message, type = 'success') => {
+        setToast({ message, type });
+        setTimeout(() => setToast(null), 3000);
     };
-    loadData();
-  }, []);
-
-  // Verificar backup antigo
-  useEffect(() => {
-    if (data.settings.lastBackup) {
-      const daysSinceBackup = (Date.now() - data.settings.lastBackup) / (1000 * 60 * 60 * 24);
-      if (daysSinceBackup > 30) {
-        showToast("Atenção: Seu último backup tem mais de 30 dias. Recomendamos realizar um novo backup.", 'warning');
-      }
-    } else if (!isLoading && data.tithes.length > 0) {
-      showToast("Atenção: Você ainda não realizou nenhum backup do sistema.", 'warning');
+    const saveData = async (type, item, operation = 'put') => {
+        try {
+            if (operation === 'delete') {
+                await dbOp(type, 'delete', item.id);
+                setData(prev => ({ ...prev, [type]: prev[type].filter((i) => i.id !== item.id) }));
+            }
+            else {
+                await dbOp(type, 'put', item);
+                setData(prev => {
+                    const typeKey = type;
+                    const exists = prev[typeKey].find((i) => i.id === item.id);
+                    let newData = exists
+                        ? prev[typeKey].map((i) => i.id === item.id ? item : i)
+                        : [...prev[typeKey], item];
+                    if (type === 'tithes')
+                        newData.sort((a, b) => b.timestamp - a.timestamp);
+                    if (type === 'members' || type === 'secretaries' || type === 'churches')
+                        newData.sort((a, b) => a.name.localeCompare(b.name));
+                    return { ...prev, [type]: newData };
+                });
+            }
+        }
+        catch (error) {
+            console.error("Erro ao salvar:", error);
+            showToast("Erro ao salvar os dados.", 'error');
+        }
+    };
+    if (isLoading)
+        return React.createElement("div", { className: "min-h-screen flex items-center justify-center bg-gray-50" },
+            React.createElement("div", { className: "animate-spin rounded-full h-12 w-12 border-t-2 border-b-2", style: { borderColor: '#FF7A00' } }));
+    if (isPrintingReport) {
+        return React.createElement(DetailedReport, { data: data, onDone: () => setIsPrintingReport(false) });
     }
-  }, [isLoading, data.settings.lastBackup, data.tithes.length]);
-
-  const showToast = (message: string, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
-
-  const saveData = async (type: string, item: any, operation = 'put') => {
-    try {
-      if (operation === 'delete') {
-        await dbOp(type, 'delete', item.id);
-        setData(prev => ({ ...prev, [type]: prev[type as keyof typeof prev].filter((i: any) => i.id !== item.id) }));
-      } else {
-        await dbOp(type, 'put', item);
-        setData(prev => {
-          if (type === 'settings') {
-            return { ...prev, settings: item };
-          }
-
-          const typeKey = type as keyof typeof prev;
-          const exists = (prev[typeKey] as any[]).find((i: any) => i.id === item.id);
-          let newData = exists 
-            ? (prev[typeKey] as any[]).map((i: any) => i.id === item.id ? item : i)
-            : [...(prev[typeKey] as any[]), item];
-          
-          if (type === 'tithes') newData.sort((a: any, b: any) => b.timestamp - a.timestamp);
-          if (type === 'members' || type === 'secretaries' || type === 'churches') newData.sort((a: any, b: any) => a.name.localeCompare(b.name));
-          
-          return { ...prev, [type]: newData };
-        });
-      }
-    } catch (error) {
-      console.error("Erro ao salvar:", error);
-      showToast("Erro ao salvar os dados.", 'error');
-    }
-  };
-
-  if (isLoading) return <div className="min-h-screen flex items-center justify-center bg-gray-50"><div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2" style={{borderColor: '#FF7A00'}}></div></div>;
-
-  if (isPrintingReport) {
-    return <DetailedReport data={data} onDone={() => setIsPrintingReport(false)} />;
-  }
-
-  const CSS_VARS = { '--primary': data.settings.primaryColor } as React.CSSProperties;
-
-  return (
-    <div className="min-h-screen bg-gray-100 flex flex-col md:flex-row font-sans" style={CSS_VARS}>
-      {/* Toast Notification */}
-      {toast && (
-        <div className={`fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 transform transition-all duration-300 translate-y-0 opacity-100
-          ${toast.type === 'success' ? 'bg-green-100 text-green-800 border-l-4 border-green-500' : 
-            toast.type === 'warning' ? 'bg-yellow-100 text-yellow-800 border-l-4 border-yellow-500' : 
-            'bg-red-100 text-red-800 border-l-4 border-red-500'}`}>
-          {toast.type === 'success' ? <CheckCircle size={20} /> : <AlertTriangle size={20} />}
-          <span className="font-medium">{toast.message}</span>
-        </div>
-      )}
-
-      {/* Sidebar */}
-      <aside className={`bg-white shadow-xl flex flex-col transition-all duration-300 z-40 fixed md:relative h-full
-        ${sidebarOpen ? 'w-64 translate-x-0' : '-translate-x-full md:translate-x-0 md:w-20'}`}>
-        <div className="h-20 flex items-center justify-between px-4 border-b">
-          {(sidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 768)) && (
-            <h1 className="font-bold text-gray-800 leading-tight flex-1 truncate pr-2">
-              {data.settings.churchName}
-            </h1>
-          )}
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 hidden md:block">
-            <Menu size={20} />
-          </button>
-        </div>
-        
-        <div className="flex-1 overflow-y-auto py-4">
-          <NavItem icon={<PlusCircle/>} label="Lançamento" active={activeTab === 'lancamento'} onClick={() => {setActiveTab('lancamento'); if(typeof window !== 'undefined' && window.innerWidth < 768) setSidebarOpen(false);}} open={sidebarOpen} />
-          <NavItem icon={<PieChart/>} label="Dashboard" active={activeTab === 'dashboard'} onClick={() => {setActiveTab('dashboard'); if(typeof window !== 'undefined' && window.innerWidth < 768) setSidebarOpen(false);}} open={sidebarOpen} />
-          <NavItem icon={<History/>} label="Histórico" active={activeTab === 'history'} onClick={() => {setActiveTab('history'); if(typeof window !== 'undefined' && window.innerWidth < 768) setSidebarOpen(false);}} open={sidebarOpen} />
-          <div className="my-2 border-t border-gray-100 mx-4"></div>
-          <NavItem icon={<Users/>} label="Membros" active={activeTab === 'members'} onClick={() => {setActiveTab('members'); if(typeof window !== 'undefined' && window.innerWidth < 768) setSidebarOpen(false);}} open={sidebarOpen} />
-          <NavItem icon={<UserSquare/>} label="Secretários" active={activeTab === 'secretaries'} onClick={() => {setActiveTab('secretaries'); if(typeof window !== 'undefined' && window.innerWidth < 768) setSidebarOpen(false);}} open={sidebarOpen} />
-          <NavItem icon={<Church/>} label="Igrejas" active={activeTab === 'churches'} onClick={() => {setActiveTab('churches'); if(typeof window !== 'undefined' && window.innerWidth < 768) setSidebarOpen(false);}} open={sidebarOpen} />
-          <div className="my-2 border-t border-gray-100 mx-4"></div>
-          <NavItem icon={<Save/>} label="Backup" active={activeTab === 'backup'} onClick={() => {setActiveTab('backup'); if(typeof window !== 'undefined' && window.innerWidth < 768) setSidebarOpen(false);}} open={sidebarOpen} />
-          <NavItem icon={<Settings/>} label="Configurações" active={activeTab === 'settings'} onClick={() => {setActiveTab('settings'); if(typeof window !== 'undefined' && window.innerWidth < 768) setSidebarOpen(false);}} open={sidebarOpen} />
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        {/* Mobile Header */}
-        <div className="md:hidden h-16 bg-white shadow-sm flex items-center px-4 border-b shrink-0 z-30">
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 -ml-2 text-gray-600">
-            <Menu size={24} />
-          </button>
-          <h1 className="font-bold text-gray-800 ml-2 truncate">{data.settings.churchName}</h1>
-        </div>
-
-        {/* Content Area */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50/50">
-          {activeTab === 'lancamento' && <LaunchScreen data={data} saveData={saveData} showToast={showToast} />}
-          {activeTab === 'dashboard' && <DashboardScreen data={data} />}
-          {activeTab === 'history' && <HistoryScreen data={data} saveData={saveData} showToast={showToast} />}
-          {activeTab === 'members' && <CRUDScreen type="members" title="Membros" data={data} saveData={saveData} showToast={showToast} />}
-          {activeTab === 'secretaries' && <CRUDScreen type="secretaries" title="Secretários" data={data} saveData={saveData} showToast={showToast} />}
-          {activeTab === 'churches' && <CRUDScreen type="churches" title="Igrejas / Congregações" data={data} saveData={saveData} showToast={showToast} />}
-          {activeTab === 'backup' && <BackupScreen data={data} setData={setData} showToast={showToast} dbOp={dbOp} onPrintReport={() => setIsPrintingReport(true)} />}
-          {activeTab === 'settings' && <SettingsScreen data={data} saveData={saveData} showToast={showToast} />}
-        </div>
-      </main>
-
-      {/* Overlay for mobile sidebar */}
-      {sidebarOpen && typeof window !== 'undefined' && window.innerWidth < 768 && (
-        <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setSidebarOpen(false)}></div>
-      )}
-    </div>
-  );
+    const CSS_VARS = { '--primary': data.settings.primaryColor };
+    return (React.createElement("div", { className: "min-h-screen bg-gray-100 flex flex-col md:flex-row font-sans", style: CSS_VARS },
+        toast && (React.createElement("div", { className: `fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 transform transition-all duration-300 translate-y-0 opacity-100
+          ${toast.type === 'success' ? 'bg-green-100 text-green-800 border-l-4 border-green-500' :
+                toast.type === 'warning' ? 'bg-yellow-100 text-yellow-800 border-l-4 border-yellow-500' :
+                    'bg-red-100 text-red-800 border-l-4 border-red-500'}` },
+            toast.type === 'success' ? React.createElement(CheckCircle, { size: 20 }) : React.createElement(AlertTriangle, { size: 20 }),
+            React.createElement("span", { className: "font-medium" }, toast.message))),
+        React.createElement("aside", { className: `bg-white shadow-xl flex flex-col transition-all duration-300 z-40 fixed md:relative h-full
+        ${sidebarOpen ? 'w-64 translate-x-0' : '-translate-x-full md:translate-x-0 md:w-20'}` },
+            React.createElement("div", { className: "h-20 flex items-center justify-between px-4 border-b" },
+                (sidebarOpen || (typeof window !== 'undefined' && window.innerWidth < 768)) && (React.createElement("h1", { className: "font-bold text-gray-800 leading-tight flex-1 truncate pr-2" }, data.settings.churchName)),
+                React.createElement("button", { onClick: () => setSidebarOpen(!sidebarOpen), className: "p-2 rounded-lg hover:bg-gray-100 text-gray-500 hidden md:block" },
+                    React.createElement(Menu, { size: 20 }))),
+            React.createElement("div", { className: "flex-1 overflow-y-auto py-4" },
+                React.createElement(NavItem, { icon: React.createElement(PlusCircle, null), label: "Lan\u00E7amento", active: activeTab === 'lancamento', onClick: () => { setActiveTab('lancamento'); if (typeof window !== 'undefined' && window.innerWidth < 768)
+                        setSidebarOpen(false); }, open: sidebarOpen }),
+                React.createElement(NavItem, { icon: React.createElement(PieChart, null), label: "Dashboard", active: activeTab === 'dashboard', onClick: () => { setActiveTab('dashboard'); if (typeof window !== 'undefined' && window.innerWidth < 768)
+                        setSidebarOpen(false); }, open: sidebarOpen }),
+                React.createElement(NavItem, { icon: React.createElement(History, null), label: "Hist\u00F3rico", active: activeTab === 'history', onClick: () => { setActiveTab('history'); if (typeof window !== 'undefined' && window.innerWidth < 768)
+                        setSidebarOpen(false); }, open: sidebarOpen }),
+                React.createElement("div", { className: "my-2 border-t border-gray-100 mx-4" }),
+                React.createElement(NavItem, { icon: React.createElement(Users, null), label: "Membros", active: activeTab === 'members', onClick: () => { setActiveTab('members'); if (typeof window !== 'undefined' && window.innerWidth < 768)
+                        setSidebarOpen(false); }, open: sidebarOpen }),
+                React.createElement(NavItem, { icon: React.createElement(UserSquare, null), label: "Secret\u00E1rios", active: activeTab === 'secretaries', onClick: () => { setActiveTab('secretaries'); if (typeof window !== 'undefined' && window.innerWidth < 768)
+                        setSidebarOpen(false); }, open: sidebarOpen }),
+                React.createElement(NavItem, { icon: React.createElement(Church, null), label: "Igrejas", active: activeTab === 'churches', onClick: () => { setActiveTab('churches'); if (typeof window !== 'undefined' && window.innerWidth < 768)
+                        setSidebarOpen(false); }, open: sidebarOpen }),
+                React.createElement("div", { className: "my-2 border-t border-gray-100 mx-4" }),
+                React.createElement(NavItem, { icon: React.createElement(Save, null), label: "Backup", active: activeTab === 'backup', onClick: () => { setActiveTab('backup'); if (typeof window !== 'undefined' && window.innerWidth < 768)
+                        setSidebarOpen(false); }, open: sidebarOpen }),
+                React.createElement(NavItem, { icon: React.createElement(Settings, null), label: "Configura\u00E7\u00F5es", active: activeTab === 'settings', onClick: () => { setActiveTab('settings'); if (typeof window !== 'undefined' && window.innerWidth < 768)
+                        setSidebarOpen(false); }, open: sidebarOpen }))),
+        React.createElement("main", { className: "flex-1 flex flex-col h-screen overflow-hidden" },
+            React.createElement("div", { className: "md:hidden h-16 bg-white shadow-sm flex items-center px-4 border-b shrink-0 z-30" },
+                React.createElement("button", { onClick: () => setSidebarOpen(!sidebarOpen), className: "p-2 -ml-2 text-gray-600" },
+                    React.createElement(Menu, { size: 24 })),
+                React.createElement("h1", { className: "font-bold text-gray-800 ml-2 truncate" }, data.settings.churchName)),
+            React.createElement("div", { className: "flex-1 overflow-y-auto p-4 md:p-8 bg-gray-50/50" },
+                activeTab === 'lancamento' && React.createElement(LaunchScreen, { data: data, saveData: saveData, showToast: showToast }),
+                activeTab === 'dashboard' && React.createElement(DashboardScreen, { data: data }),
+                activeTab === 'history' && React.createElement(HistoryScreen, { data: data, saveData: saveData, showToast: showToast }),
+                activeTab === 'members' && React.createElement(CRUDScreen, { type: "members", title: "Membros", data: data, saveData: saveData, showToast: showToast }),
+                activeTab === 'secretaries' && React.createElement(CRUDScreen, { type: "secretaries", title: "Secret\u00E1rios", data: data, saveData: saveData, showToast: showToast }),
+                activeTab === 'churches' && React.createElement(CRUDScreen, { type: "churches", title: "Igrejas / Congrega\u00E7\u00F5es", data: data, saveData: saveData, showToast: showToast }),
+                activeTab === 'backup' && React.createElement(BackupScreen, { data: data, setData: setData, showToast: showToast, dbOp: dbOp, onPrintReport: () => setIsPrintingReport(true) }),
+                activeTab === 'settings' && React.createElement(SettingsScreen, { data: data, saveData: saveData, showToast: showToast }))),
+        sidebarOpen && typeof window !== 'undefined' && window.innerWidth < 768 && (React.createElement("div", { className: "fixed inset-0 bg-black/50 z-30 md:hidden", onClick: () => setSidebarOpen(false) }))));
 }
-
 // ==========================================
 // SUBCOMPONENTES
 // ==========================================
-
-const NavItem = ({ icon, label, active, onClick, open }: any) => (
-  <button 
-    onClick={onClick}
-    className={`w-full flex items-center px-4 py-3 mb-1 transition-colors relative group
-      ${active ? 'bg-orange-50 text-orange-600 border-r-4 border-orange-500' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`}
-    style={active ? { backgroundColor: 'var(--primary)15', color: 'var(--primary)', borderColor: 'var(--primary)' } : {}}
-  >
-    <div className="flex items-center justify-center w-6 h-6 mr-3">{icon}</div>
-    {(open || (typeof window !== 'undefined' && window.innerWidth < 768)) && <span className="font-medium whitespace-nowrap">{label}</span>}
-    
-    {/* Tooltip para sidebar fechada */}
-    {!open && typeof window !== 'undefined' && window.innerWidth >= 768 && (
-      <div className="absolute left-16 bg-gray-800 text-white text-sm px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50">
-        {label}
-      </div>
-    )}
-  </button>
-);
-
+const NavItem = ({ icon, label, active, onClick, open }) => (React.createElement("button", { onClick: onClick, className: `w-full flex items-center px-4 py-3 mb-1 transition-colors relative group
+      ${active ? 'bg-orange-50 text-orange-600 border-r-4 border-orange-500' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'}`, style: active ? { backgroundColor: 'var(--primary)15', color: 'var(--primary)', borderColor: 'var(--primary)' } : {} },
+    React.createElement("div", { className: "flex items-center justify-center w-6 h-6 mr-3" }, icon),
+    (open || (typeof window !== 'undefined' && window.innerWidth < 768)) && React.createElement("span", { className: "font-medium whitespace-nowrap" }, label),
+    !open && typeof window !== 'undefined' && window.innerWidth >= 768 && (React.createElement("div", { className: "absolute left-16 bg-gray-800 text-white text-sm px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50" }, label))));
 // --- TELA DE LANÇAMENTO ---
-const LaunchScreen = ({ data, saveData, showToast }: any) => {
-  const [memberText, setMemberText] = useState('');
-  const [secretaryText, setSecretaryText] = useState('');
-  const [churchText, setChurchText] = useState('');
-  const [valueStr, setValueStr] = useState('');
-  const [observation, setObservation] = useState('');
-  
-  const [selectedMember, setSelectedMember] = useState<any>(null);
-  const [selectedSecretary, setSelectedSecretary] = useState<any>(null);
-  const [selectedChurch, setSelectedChurch] = useState<any>(null);
-  
-  const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
-  
-  const memberInputRef = useRef<HTMLInputElement>(null);
-
-  const handleAddMember = async (name: string) => {
-    const newMember = { id: generateId(), name, createdAt: Date.now() };
-    await saveData('members', newMember);
-    setSelectedMember(newMember);
-    setMemberText(name);
-    showToast(`Membro "${name}" salvo com sucesso!`);
-  };
-
-  const handleAddSecretary = async (name: string) => {
-    const newSec = { id: generateId(), name, createdAt: Date.now() };
-    await saveData('secretaries', newSec);
-    setSelectedSecretary(newSec);
-    setSecretaryText(name);
-    showToast(`Secretário(a) "${name}" salvo(a) com sucesso!`);
-  };
-
-  const handleAddChurch = async (name: string) => {
-    const newChurch = { id: generateId(), name, createdAt: Date.now() };
-    await saveData('churches', newChurch);
-    setSelectedChurch(newChurch);
-    setChurchText(name);
-    showToast(`Igreja "${name}" salva com sucesso!`);
-  };
-
-  // Atalhos de teclado
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'F2') {
-        e.preventDefault();
-        memberInputRef.current?.focus();
-      }
+const LaunchScreen = ({ data, saveData, showToast }) => {
+    const [memberText, setMemberText] = useState('');
+    const [secretaryText, setSecretaryText] = useState('');
+    const [churchText, setChurchText] = useState('');
+    const [valueStr, setValueStr] = useState('');
+    const [observation, setObservation] = useState('');
+    const [selectedMember, setSelectedMember] = useState(null);
+    const [selectedSecretary, setSelectedSecretary] = useState(null);
+    const [selectedChurch, setSelectedChurch] = useState(null);
+    const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]);
+    const memberInputRef = useRef(null);
+    const handleAddMember = async (name) => {
+        const newMember = { id: generateId(), name, createdAt: Date.now() };
+        await saveData('members', newMember);
+        setSelectedMember(newMember);
+        setMemberText(name);
+        showToast(`Membro "${name}" salvo com sucesso!`);
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  const handleValueChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseCurrency(e.target.value);
-    setValueStr(val === 0 ? '' : formatCurrency(val));
-  };
-
-  const handleSave = async () => {
-    if (!selectedMember || !selectedSecretary || !valueStr) {
-      showToast('Preencha todos os campos obrigatórios.', 'error');
-      return;
-    }
-
-    const value = parseCurrency(valueStr);
-    const now = new Date();
-    const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-
-    const tithe = {
-      id: generateId(),
-      date: filterDate,
-      time,
-      timestamp: Date.now(),
-      memberName: selectedMember.name,
-      memberId: selectedMember.id,
-      secretaryName: selectedSecretary.name,
-      secretaryId: selectedSecretary.id,
-      churchName: selectedChurch?.name || '',
-      churchId: selectedChurch?.id || null,
-      value,
-      observation
+    const handleAddSecretary = async (name) => {
+        const newSec = { id: generateId(), name, createdAt: Date.now() };
+        await saveData('secretaries', newSec);
+        setSelectedSecretary(newSec);
+        setSecretaryText(name);
+        showToast(`Secretário(a) "${name}" salvo(a) com sucesso!`);
     };
-
-    await saveData('tithes', tithe);
-    showToast(`Dízimo de ${formatCurrency(value)} registrado com sucesso!`);
-    
-    // Reset form
-    setValueStr('');
-    setObservation('');
-    setMemberText('');
-    setSelectedMember(null);
-    memberInputRef.current?.focus();
-  };
-
-  const todaysTithes = (data.tithes as any[]).filter((t: any) => t.date === filterDate);
-  const todayTotal = todaysTithes.reduce((a: number, b: any) => a + b.value, 0);
-
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {/* Formulário */}
-      <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4">
-        <h2 className="text-2xl font-bold text-gray-800 mb-6">Novo Lançamento</h2>
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Data</label>
-          <input 
-            type="date" 
-            value={filterDate}
-            onChange={(e) => setFilterDate(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg p-3 text-gray-800 focus:border-orange-500 outline-none"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Membro (F2)</label>
-          <Autocomplete 
-            items={data.members}
-            value={memberText}
-            onChange={setMemberText}
-            onSelect={setSelectedMember}
-            onAdd={handleAddMember}
-            placeholder="Digite o nome do membro..."
-            inputRef={memberInputRef}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Secretário(a)</label>
-          <Autocomplete 
-            items={data.secretaries}
-            value={secretaryText}
-            onChange={setSecretaryText}
-            onSelect={setSelectedSecretary}
-            onAdd={handleAddSecretary}
-            placeholder="Digite o nome do secretário..."
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Igreja / Congregação (Opcional)</label>
-          <Autocomplete 
-            items={data.churches}
-            value={churchText}
-            onChange={setChurchText}
-            onSelect={setSelectedChurch}
-            onAdd={handleAddChurch}
-            placeholder="Digite o nome da igreja..."
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Valor</label>
-          <input 
-            type="text" 
-            value={valueStr}
-            onChange={handleValueChange}
-            placeholder="R$ 0,00"
-            className="w-full border border-gray-300 rounded-lg p-3 text-gray-800 focus:border-orange-500 outline-none text-lg font-bold"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Observação (Opcional)</label>
-          <textarea 
-            value={observation}
-            onChange={(e) => setObservation(e.target.value)}
-            placeholder="Ex: Dízimo especial, oferta..."
-            className="w-full border border-gray-300 rounded-lg p-3 text-gray-800 focus:border-orange-500 outline-none resize-none h-20"
-          />
-        </div>
-
-        <button 
-          onClick={handleSave}
-          className="w-full py-4 font-bold text-white rounded-xl shadow-md transition-all hover:-translate-y-0.5"
-          style={{ backgroundColor: 'var(--primary)' }}
-        >
-          <PlusCircle size={20} className="inline mr-2" /> Registrar Lançamento
-        </button>
-      </div>
-
-      {/* Resumo do dia */}
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 h-fit">
-        <h3 className="text-lg font-bold text-gray-800 mb-4">Resumo do Dia</h3>
-        <div className="space-y-4">
-          <div className="text-center p-4 rounded-lg" style={{ backgroundColor: 'var(--primary)15' }}>
-            <div className="text-sm text-gray-600 mb-1">Total Arrecadado</div>
-            <div className="text-3xl font-bold" style={{ color: 'var(--primary)' }}>{formatCurrency(todayTotal)}</div>
-          </div>
-          <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <div className="text-sm text-gray-600 mb-1">Lançamentos</div>
-            <div className="text-3xl font-bold text-gray-800">{todaysTithes.length}</div>
-          </div>
-          
-          <div className="border-t border-gray-100 pt-4">
-            <h4 className="font-bold text-gray-800 mb-3 text-sm">Últimos Lançamentos</h4>
-            <div className="space-y-3 max-h-96 overflow-y-auto">
-              {todaysTithes.map((tithe: any) => (
-                <div key={tithe.id} className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-                  <div className="flex flex-col">
-                    <span className="font-bold text-gray-800">{tithe.memberName}</span>
-                    <div className="flex items-center text-xs text-gray-500 mt-1 gap-2">
-                      <span className="flex items-center gap-1"><UserSquare size={12}/> {tithe.secretaryName}</span>
-                      <span>•</span>
-                      <span className="flex items-center gap-1"><Church size={12}/> {tithe.churchName || 'N/A'}</span>
-                      <span>•</span>
-                      <span className="flex items-center gap-1"><Calendar size={12}/> {tithe.time}</span>
-                    </div>
-                    {tithe.observation && (
-                      <p className="text-xs text-gray-500 mt-2 italic border-l-2 pl-2 border-gray-300">"{tithe.observation}"</p>
-                    )}
-                  </div>
-                  <div className="mt-2 sm:mt-0 text-right">
-                    <span className="text-lg font-bold text-gray-900">{formatCurrency(tithe.value)}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// Componente Autocomplete Customizado
-const Autocomplete = ({ items, value, onChange, onSelect, onAdd, placeholder, inputRef }: any) => {
-  const [isOpen, setIsOpen] = useState(false);
-  
-  const filteredItems = useMemo(() => {
-    if (!value) return items.slice(0, 5); // Mostra primeiros 5 se vazio
-    const lowerVal = value.toLowerCase();
-    return items.filter((i: any) => i.name.toLowerCase().includes(lowerVal)).slice(0, 10);
-  }, [items, value]);
-
-  const exactMatch = items.find((i: any) => i.name.toLowerCase() === value.trim().toLowerCase());
-
-  return (
-    <div className="relative">
-      <input
-        ref={inputRef}
-        type="text"
-        value={value}
-        onChange={(e) => {
-          onChange(e.target.value);
-          onSelect(null); // Reseta a seleção se digitar
-          setIsOpen(true);
-        }}
-        onFocus={() => setIsOpen(true)}
-        onBlur={() => setTimeout(() => setIsOpen(false), 200)} // Delay para permitir click
-        placeholder={placeholder}
-        className="w-full border border-gray-300 rounded-lg p-3 text-gray-800 focus:border-orange-500 outline-none transition-colors"
-      />
-      
-      {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
-          {filteredItems.map((item: any) => (
-            <div 
-              key={item.id}
-              onMouseDown={(e) => { e.preventDefault(); onChange(item.name); onSelect(item); setIsOpen(false); }}
-              className="px-4 py-3 hover:bg-gray-50 cursor-pointer text-sm text-gray-700 border-b border-gray-50 last:border-0"
-            >
-              {item.name}
-            </div>
-          ))}
-          
-          {value.trim() !== '' && !exactMatch && (
-            <div 
-              onMouseDown={(e) => { 
+    const handleAddChurch = async (name) => {
+        const newChurch = { id: generateId(), name, createdAt: Date.now() };
+        await saveData('churches', newChurch);
+        setSelectedChurch(newChurch);
+        setChurchText(name);
+        showToast(`Igreja "${name}" salva com sucesso!`);
+    };
+    // Atalhos de teclado
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'F2') {
                 e.preventDefault();
-                if (onAdd) onAdd(value.trim());
-                setIsOpen(false); 
-              }}
-              className="px-4 py-3 bg-orange-50 text-orange-700 cursor-pointer text-sm font-medium flex items-center gap-2"
-              style={{ color: 'var(--primary)', backgroundColor: 'var(--primary)15' }}
-            >
-              <PlusCircle size={16} /> Adicionar "{value}"
-            </div>
-          )}
-          {filteredItems.length === 0 && value.trim() === '' && (
-            <div className="px-4 py-3 text-sm text-gray-400 text-center italic">Digite para pesquisar...</div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
-
-// --- TELA DE DASHBOARD ---
-const DashboardScreen = ({ data }: any) => {
-  const today = new Date().toISOString().split('T')[0];
-  const todaysTithes = data.tithes.filter((t: any) => t.date === today);
-  
-  const todayTotal = todaysTithes.reduce((a: number, b: any) => a + b.value, 0);
-  const generalTotal = data.tithes.reduce((a: number, b: any) => a + b.value, 0);
-  const maxToday = todaysTithes.length > 0 ? Math.max(...todaysTithes.map((t: any) => t.value)) : 0;
-  const lastTithe = data.tithes.length > 0 ? data.tithes[0] : null;
-
-  // Preparar dados para o gráfico de barras (Últimos 7 dias)
-  const last7Days = Array.from({length: 7}, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    return d.toISOString().split('T')[0];
-  }).reverse();
-
-  const chartData = last7Days.map(date => {
-    const total = data.tithes.filter((t: any) => t.date === date).reduce((a: number, b: any) => a + b.value, 0);
-    return { date, total, label: date.split('-')[2] + '/' + date.split('-')[1] };
-  });
-  
-  const maxChartVal = Math.max(...chartData.map(d => d.total), 1); // Evitar div por 0
-
-  // Dados para Gráfico de Pizza (Secretários top 5)
-  const secTotals: any = {};
-  data.tithes.forEach((t: any) => {
-    secTotals[t.secretaryName] = (secTotals[t.secretaryName] || 0) + 1;
-  });
-  const secChartData = Object.entries(secTotals)
-    .sort((a: any, b: any) => b[1] - a[1])
-    .slice(0, 5)
-    .map((item: any, i: number) => ({ name: item[0], count: item[1], color: ['#FF7A00', '#FF9B3D', '#FFB870', '#FFD2A3', '#FFEBD6'][i] }));
-
-  return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-800">Visão Geral</h2>
-      
-      {/* Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <DashCard title="Arrecadado Hoje" value={formatCurrency(todayTotal)} subtitle={`${todaysTithes.length} lançamentos`} icon={<TrendingUp size={24} className="text-orange-500" style={{color: 'var(--primary)'}}/>} />
-        <DashCard title="Maior Dízimo (Hoje)" value={formatCurrency(maxToday)} subtitle="Maior valor do dia" icon={<TrendingUp size={24} className="text-green-500"/>} />
-        <DashCard title="Total Geral Histórico" value={formatCurrency(generalTotal)} subtitle={`${data.tithes.length} registros no total`} icon={<PieChart size={24} className="text-blue-500"/>} bg="bg-gray-900 text-white" textClass="text-white" subClass="text-gray-400" />
-        
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 flex flex-col justify-between">
-          <div className="text-sm font-medium text-gray-500 mb-2">Último Lançamento</div>
-          {lastTithe ? (
-            <div>
-              <div className="font-bold text-gray-800 text-lg truncate">{lastTithe.memberName}</div>
-              <div className="text-xl font-bold" style={{ color: 'var(--primary)' }}>{formatCurrency(lastTithe.value)}</div>
-              <div className="text-xs text-gray-400 mt-1">{formatDate(lastTithe.date)} às {lastTithe.time}</div>
-            </div>
-          ) : (
-            <div className="text-gray-400 italic">Nenhum registro</div>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Gráfico de Barras SVG Simples (Sem libs externas) */}
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 lg:col-span-2">
-          <h3 className="text-lg font-bold text-gray-800 mb-6">Arrecadação dos Últimos 7 Dias</h3>
-          <div className="h-64 flex items-end justify-between gap-2 pt-4">
-            {chartData.map((d: any, i: number) => {
-              const heightPct = (d.total / maxChartVal) * 100;
-              return (
-                <div key={i} className="flex flex-col items-center flex-1 group relative">
-                  {/* Tooltip */}
-                  <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-800 text-white text-xs py-1 px-2 rounded pointer-events-none whitespace-nowrap z-10">
-                    {formatCurrency(d.total)}
-                  </div>
-                  <div className="w-full max-w-[40px] bg-orange-100 rounded-t-sm relative flex items-end justify-center" style={{ height: '100%' }}>
-                     <div 
-                        className="w-full rounded-t-sm transition-all duration-500 hover:opacity-80" 
-                        style={{ height: `${heightPct}%`, backgroundColor: 'var(--primary)' }}
-                     ></div>
-                  </div>
-                  <span className="text-xs text-gray-500 mt-2">{d.label}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Gráfico / Lista - Secretários */}
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-          <h3 className="text-lg font-bold text-gray-800 mb-6">Top Secretários (Qtd.)</h3>
-          <div className="space-y-4">
-            {secChartData.length === 0 ? <p className="text-gray-400 text-sm">Sem dados suficientes.</p> : null}
-            {secChartData.map((sec: any, i: number) => (
-              <div key={i} className="flex items-center gap-3">
-                <div className="w-12 text-sm font-bold text-right">{sec.count}x</div>
-                <div className="flex-1 bg-gray-100 h-3 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${(sec.count / secChartData[0].count) * 100}%`, backgroundColor: sec.color }}></div>
-                </div>
-                <div className="w-24 text-xs text-gray-600 truncate">{sec.name}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const DashCard = ({ title, value, subtitle, icon, bg = "bg-white", textClass = "text-gray-800", subClass = "text-gray-500" }: any) => (
-  <div className={`${bg} rounded-2xl p-5 shadow-sm border border-gray-100 flex flex-col justify-between relative overflow-hidden`}>
-    <div className="flex justify-between items-start mb-2 z-10">
-      <div className={`text-sm font-medium ${subClass}`}>{title}</div>
-      <div className="p-2 bg-gray-50/20 rounded-lg">{icon}</div>
-    </div>
-    <div className={`text-2xl sm:text-3xl font-bold tracking-tight mb-1 z-10 ${textClass}`}>{value}</div>
-    <div className={`text-xs z-10 ${subClass}`}>{subtitle}</div>
-  </div>
-);
-
-
-// --- TELA DE HISTÓRICO GERAL ---
-const HistoryScreen = ({ data, saveData, showToast }: any) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [dateFilter, setDateFilter] = useState('');
-  const [itemsToShow, setItemsToShow] = useState(50);
-  
-  const [editingItem, setEditingItem] = useState<any>(null);
-  const [editValue, setEditValue] = useState('');
-  const [editChurch, setEditChurch] = useState('');
-  const [editObs, setEditObs] = useState('');
-
-  const filteredData = data.tithes.filter((t: any) => {
-    const matchSearch = 
-      t.memberName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      t.secretaryName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (t.churchName && t.churchName.toLowerCase().includes(searchTerm.toLowerCase())) ||
-      t.value.toString().includes(searchTerm);
-    const matchDate = dateFilter ? t.date === dateFilter : true;
-    return matchSearch && matchDate;
-  });
-
-  const handleDelete = async (item: any) => {
-    if(window.confirm(`Tem certeza que deseja excluir o registro de ${item.memberName} no valor de ${formatCurrency(item.value)}?\nEsta ação não pode ser desfeita e afetará os totais.`)) {
-      await saveData('tithes', item, 'delete');
-      showToast('Registro excluído e arquivado com sucesso.');
-    }
-  };
-
-  const startEdit = (item: any) => {
-    setEditingItem(item);
-    setEditValue(formatCurrency(item.value));
-    setEditChurch(item.churchName || '');
-    setEditObs(item.observation || '');
-  };
-
-  const saveEdit = async () => {
-    const val = parseCurrency(editValue);
-    if(val <= 0) return showToast('Valor inválido', 'error');
-    
-    const updated = { 
-      ...editingItem, 
-      value: val, 
-      churchName: editChurch,
-      observation: editObs, 
-      updatedAt: Date.now(),
-      updateNote: 'Editado via Histórico' 
+                memberInputRef.current?.focus();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+    const handleValueChange = (e) => {
+        const val = parseCurrency(e.target.value);
+        setValueStr(val === 0 ? '' : formatCurrency(val));
     };
-    
-    await saveData('tithes', updated);
-    setEditingItem(null);
-    showToast('Registro atualizado.');
-  };
-
-  const exportCSV = () => {
-    const headers = ["ID", "Data", "Hora", "Membro", "Valor", "Secretário", "Igreja", "Observação"];
-    const rows = filteredData.map((t: any) => [
-      t.id, formatDate(t.date), t.time, `"${t.memberName}"`, t.value, `"${t.secretaryName}"`, `"${t.churchName || ''}"`, `"${t.observation || ''}"`
-    ]);
-    
-    let csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e: any) => e.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `relatorio_dizimos_${new Date().getTime()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const printReport = () => {
-    window.print();
-  };
-
-  return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 h-full flex flex-col print:shadow-none print:border-none print:p-0">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4 print:hidden">
-        <h2 className="text-2xl font-bold text-gray-800">Histórico Completo</h2>
-        <div className="flex gap-2">
-          <button onClick={exportCSV} className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors">
-            <Download size={16} /> CSV
-          </button>
-          <button onClick={printReport} className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors">
-            <Printer size={16} /> Imprimir PDF
-          </button>
-        </div>
-      </div>
-
-      {/* Cabecalho de impressao oculto na tela */}
-      <div className="hidden print:block mb-6 text-center">
-        <h1 className="text-2xl font-bold">{data.settings.churchName}</h1>
-        <h2 className="text-lg">Relatório de Dízimos</h2>
-        <p className="text-sm text-gray-500">Impresso em: {new Date().toLocaleString('pt-BR')}</p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 print:hidden">
-        <div className="relative">
-          <Search size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-          <input 
-            type="text" 
-            placeholder="Pesquisar membro, secretário ou valor..." 
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:border-orange-500 outline-none text-sm"
-          />
-        </div>
-        <div className="relative">
-          <Calendar size={18} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-          <input 
-            type="date" 
-            value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:border-orange-500 outline-none text-sm"
-          />
-        </div>
-      </div>
-
-      {/* Tabela / Lista */}
-      <div className="flex-1 overflow-y-auto">
-        <ul className="space-y-2">
-          {filteredData.slice(0, itemsToShow).map((tithe: any) => (
-            <li key={tithe.id} className="p-4 bg-gray-50 rounded-lg border border-gray-100 hover:border-orange-200 transition-colors print:border-gray-300 print:break-inside-avoid">
-              {editingItem?.id === tithe.id ? (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <input 
-                      type="text" 
-                      value={editValue}
-                      onChange={(e) => setEditValue(e.target.value)}
-                      className="border border-gray-300 rounded p-2 text-sm"
-                      placeholder="Valor"
-                    />
-                    <input 
-                      type="text" 
-                      value={editChurch}
-                      onChange={(e) => setEditChurch(e.target.value)}
-                      className="border border-gray-300 rounded p-2 text-sm"
-                      placeholder="Igreja"
-                    />
-                  </div>
-                  <textarea 
-                    value={editObs}
-                    onChange={(e) => setEditObs(e.target.value)}
-                    className="w-full border border-gray-300 rounded p-2 text-sm resize-none h-16"
-                    placeholder="Observação"
-                  />
-                  <div className="flex gap-2">
-                    <button onClick={saveEdit} className="flex-1 bg-green-500 text-white py-2 rounded text-sm font-medium hover:bg-green-600">
-                      <Save size={16} className="inline mr-1" /> Salvar
-                    </button>
-                    <button onClick={() => setEditingItem(null)} className="flex-1 bg-gray-300 text-gray-700 py-2 rounded text-sm font-medium hover:bg-gray-400">
-                      Cancelar
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex justify-between items-start print:flex-col">
-                  <div className="flex-1">
-                    <div className="font-bold text-gray-800">{tithe.memberName}</div>
-                    <div className="text-xs text-gray-500 mt-1 space-y-0.5">
-                      <div>📅 {formatDate(tithe.date)} às {tithe.time}</div>
-                      <div>👤 {tithe.secretaryName}</div>
-                      {tithe.churchName && <div>⛪ {tithe.churchName}</div>}
-                      {tithe.observation && <div className="italic">"{tithe.observation}"</div>}
-                    </div>
-                  </div>
-                  <div className="text-right ml-4 print:ml-0 print:mt-2">
-                    <div className="text-lg font-bold text-gray-900">{formatCurrency(tithe.value)}</div>
-                    <div className="flex gap-2 mt-2 print:hidden">
-                      <button onClick={() => startEdit(tithe)} className="p-1 text-blue-600 hover:bg-blue-50 rounded">
-                        <Edit size={16} />
-                      </button>
-                      <button onClick={() => handleDelete(tithe)} className="p-1 text-red-600 hover:bg-red-50 rounded">
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </li>
-          ))}
-          {filteredData.length === 0 && (
-            <li className="p-8 text-center text-gray-400">Nenhum registro encontrado.</li>
-          )}
-        </ul>
-      </div>
-    </div>
-  );
+    const handleSave = async () => {
+        if (!selectedMember || !selectedSecretary || !valueStr) {
+            showToast('Preencha todos os campos obrigatórios.', 'error');
+            return;
+        }
+        const value = parseCurrency(valueStr);
+        const now = new Date();
+        const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        const tithe = {
+            id: generateId(),
+            date: filterDate,
+            time,
+            timestamp: Date.now(),
+            memberName: selectedMember.name,
+            memberId: selectedMember.id,
+            secretaryName: selectedSecretary.name,
+            secretaryId: selectedSecretary.id,
+            churchName: selectedChurch?.name || '',
+            churchId: selectedChurch?.id || null,
+            value,
+            observation
+        };
+        await saveData('tithes', tithe);
+        showToast(`Dízimo de ${formatCurrency(value)} registrado com sucesso!`);
+        // Reset form
+        setValueStr('');
+        setObservation('');
+        setMemberText('');
+        setSelectedMember(null);
+        memberInputRef.current?.focus();
+    };
+    const todaysTithes = data.tithes.filter((t) => t.date === filterDate);
+    const todayTotal = todaysTithes.reduce((a, b) => a + b.value, 0);
+    return (React.createElement("div", { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" },
+        React.createElement("div", { className: "lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4" },
+            React.createElement("h2", { className: "text-2xl font-bold text-gray-800 mb-6" }, "Novo Lan\u00E7amento"),
+            React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-medium text-gray-700 mb-2" }, "Data"),
+                React.createElement("input", { type: "date", value: filterDate, onChange: (e) => setFilterDate(e.target.value), className: "w-full border border-gray-300 rounded-lg p-3 text-gray-800 focus:border-orange-500 outline-none" })),
+            React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-medium text-gray-700 mb-2" }, "Membro (F2)"),
+                React.createElement(Autocomplete, { items: data.members, value: memberText, onChange: setMemberText, onSelect: setSelectedMember, onAdd: handleAddMember, placeholder: "Digite o nome do membro...", inputRef: memberInputRef })),
+            React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-medium text-gray-700 mb-2" }, "Secret\u00E1rio(a)"),
+                React.createElement(Autocomplete, { items: data.secretaries, value: secretaryText, onChange: setSecretaryText, onSelect: setSelectedSecretary, onAdd: handleAddSecretary, placeholder: "Digite o nome do secret\u00E1rio..." })),
+            React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-medium text-gray-700 mb-2" }, "Igreja / Congrega\u00E7\u00E3o (Opcional)"),
+                React.createElement(Autocomplete, { items: data.churches, value: churchText, onChange: setChurchText, onSelect: setSelectedChurch, onAdd: handleAddChurch, placeholder: "Digite o nome da igreja..." })),
+            React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-medium text-gray-700 mb-2" }, "Valor"),
+                React.createElement("input", { type: "text", value: valueStr, onChange: handleValueChange, placeholder: "R$ 0,00", className: "w-full border border-gray-300 rounded-lg p-3 text-gray-800 focus:border-orange-500 outline-none text-lg font-bold" })),
+            React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-medium text-gray-700 mb-2" }, "Observa\u00E7\u00E3o (Opcional)"),
+                React.createElement("textarea", { value: observation, onChange: (e) => setObservation(e.target.value), placeholder: "Ex: D\u00EDzimo especial, oferta...", className: "w-full border border-gray-300 rounded-lg p-3 text-gray-800 focus:border-orange-500 outline-none resize-none h-20" })),
+            React.createElement("button", { onClick: handleSave, className: "w-full py-4 font-bold text-white rounded-xl shadow-md transition-all hover:-translate-y-0.5", style: { backgroundColor: 'var(--primary)' } },
+                React.createElement(PlusCircle, { size: 20, className: "inline mr-2" }),
+                " Registrar Lan\u00E7amento")),
+        React.createElement("div", { className: "bg-white rounded-2xl shadow-sm border border-gray-100 p-6 h-fit" },
+            React.createElement("h3", { className: "text-lg font-bold text-gray-800 mb-4" }, "Resumo do Dia"),
+            React.createElement("div", { className: "space-y-4" },
+                React.createElement("div", { className: "text-center p-4 rounded-lg", style: { backgroundColor: 'var(--primary)15' } },
+                    React.createElement("div", { className: "text-sm text-gray-600 mb-1" }, "Total Arrecadado"),
+                    React.createElement("div", { className: "text-3xl font-bold", style: { color: 'var(--primary)' } }, formatCurrency(todayTotal))),
+                React.createElement("div", { className: "text-center p-4 bg-gray-50 rounded-lg" },
+                    React.createElement("div", { className: "text-sm text-gray-600 mb-1" }, "Lan\u00E7amentos"),
+                    React.createElement("div", { className: "text-3xl font-bold text-gray-800" }, todaysTithes.length)),
+                React.createElement("div", { className: "border-t border-gray-100 pt-4" },
+                    React.createElement("h4", { className: "font-bold text-gray-800 mb-3 text-sm" }, "\u00DAltimos Lan\u00E7amentos"),
+                    React.createElement("div", { className: "space-y-3 max-h-96 overflow-y-auto" }, todaysTithes.map((tithe) => (React.createElement("div", { key: tithe.id, className: "p-3 bg-gray-50 rounded-lg border border-gray-100" },
+                        React.createElement("div", { className: "flex flex-col" },
+                            React.createElement("span", { className: "font-bold text-gray-800" }, tithe.memberName),
+                            React.createElement("div", { className: "flex items-center text-xs text-gray-500 mt-1 gap-2" },
+                                React.createElement("span", { className: "flex items-center gap-1" },
+                                    React.createElement(UserSquare, { size: 12 }),
+                                    " ",
+                                    tithe.secretaryName),
+                                React.createElement("span", null, "\u2022"),
+                                React.createElement("span", { className: "flex items-center gap-1" },
+                                    React.createElement(Church, { size: 12 }),
+                                    " ",
+                                    tithe.churchName || 'N/A'),
+                                React.createElement("span", null, "\u2022"),
+                                React.createElement("span", { className: "flex items-center gap-1" },
+                                    React.createElement(Calendar, { size: 12 }),
+                                    " ",
+                                    tithe.time)),
+                            tithe.observation && (React.createElement("p", { className: "text-xs text-gray-500 mt-2 italic border-l-2 pl-2 border-gray-300" },
+                                "\"",
+                                tithe.observation,
+                                "\""))),
+                        React.createElement("div", { className: "mt-2 sm:mt-0 text-right" },
+                            React.createElement("span", { className: "text-lg font-bold text-gray-900" }, formatCurrency(tithe.value))))))))))));
 };
-
-
-// --- TELA DE CRUD (Membros, Secretários, Igrejas) ---
-const CRUDScreen = ({ type, title, data, saveData, showToast }: any) => {
-  const [newName, setNewName] = useState('');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editName, setEditName] = useState('');
-  const items = data[type];
-
-  const handleAdd = async () => {
-    if (!newName.trim()) {
-      showToast('Digite um nome válido.', 'error');
-      return;
-    }
-    const newItem = { id: generateId(), name: newName.trim(), createdAt: Date.now() };
-    await saveData(type, newItem);
-    setNewName('');
-    showToast(`${title.slice(0, -1)} adicionado com sucesso!`);
-  };
-
-  const handleEdit = async (item: any) => {
-    if (!editName.trim()) {
-      showToast('Digite um nome válido.', 'error');
-      return;
-    }
-    const updated = { ...item, name: editName.trim() };
-    await saveData(type, updated);
-    setEditingId(null);
-    showToast(`${title.slice(0, -1)} atualizado com sucesso!`);
-  };
-
-  const handleDelete = async (item: any) => {
-    if (window.confirm(`Tem certeza que deseja excluir "${item.name}"?`)) {
-      await saveData(type, item, 'delete');
-      showToast(`${title.slice(0, -1)} removido com sucesso!`);
-    }
-  };
-
-  return (
-    <div className="max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">{title}</h2>
-      
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6">
-        <div className="flex gap-2">
-          <input 
-            type="text" 
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
-            placeholder={`Digite o nome do novo ${title.toLowerCase().slice(0, -1)}...`}
-            className="flex-1 border border-gray-300 rounded-lg p-3 text-gray-800 focus:border-orange-500 outline-none"
-          />
-          <button 
-            onClick={handleAdd}
-            className="px-6 py-3 font-bold text-white rounded-lg shadow-md transition-all hover:-translate-y-0.5"
-            style={{ backgroundColor: 'var(--primary)' }}
-          >
-            <PlusCircle size={20} className="inline mr-2" /> Adicionar
-          </button>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-        <ul className="space-y-2">
-          {items.map((item: any) => (
-            <li key={item.id} className="p-4 bg-gray-50 rounded-lg border border-gray-100 flex justify-between items-center hover:border-orange-200 transition-colors">
-              {editingId === item.id ? (
-                <div className="flex-1 flex gap-2">
-                  <input 
-                    type="text" 
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    className="flex-1 border border-gray-300 rounded p-2 text-sm"
-                    autoFocus
-                  />
-                  <button onClick={() => handleEdit(item)} className="px-3 py-2 bg-green-500 text-white rounded text-sm font-medium hover:bg-green-600">
-                    <Save size={16} />
-                  </button>
-                  <button onClick={() => setEditingId(null)} className="px-3 py-2 bg-gray-300 text-gray-700 rounded text-sm font-medium hover:bg-gray-400">
-                    Cancelar
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <span className="font-medium text-gray-800">{item.name}</span>
-                  <div className="flex gap-2">
-                    <button 
-                      onClick={() => { setEditingId(item.id); setEditName(item.name); }}
-                      className="p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                    >
-                      <Edit size={16} />
-                    </button>
-                    <button 
-                      onClick={() => handleDelete(item)}
-                      className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </>
-              )}
-            </li>
-          ))}
-          {items.length === 0 && (
-            <li className="p-8 text-center text-gray-400">Nenhum registro encontrado.</li>
-          )}
-        </ul>
-      </div>
-    </div>
-  );
+// Componente Autocomplete Customizado
+const Autocomplete = ({ items, value, onChange, onSelect, onAdd, placeholder, inputRef }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const filteredItems = useMemo(() => {
+        if (!value)
+            return items.slice(0, 5); // Mostra primeiros 5 se vazio
+        const lowerVal = value.toLowerCase();
+        return items.filter((i) => i.name.toLowerCase().includes(lowerVal)).slice(0, 10);
+    }, [items, value]);
+    const exactMatch = items.find((i) => i.name.toLowerCase() === value.trim().toLowerCase());
+    return (React.createElement("div", { className: "relative" },
+        React.createElement("input", { ref: inputRef, type: "text", value: value, onChange: (e) => {
+                onChange(e.target.value);
+                onSelect(null); // Reseta a seleção se digitar
+                setIsOpen(true);
+            }, onFocus: () => setIsOpen(true), onBlur: () => setTimeout(() => setIsOpen(false), 200), placeholder: placeholder, className: "w-full border border-gray-300 rounded-lg p-3 text-gray-800 focus:border-orange-500 outline-none transition-colors" }),
+        isOpen && (React.createElement("div", { className: "absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto" },
+            filteredItems.map((item) => (React.createElement("div", { key: item.id, onMouseDown: (e) => { e.preventDefault(); onChange(item.name); onSelect(item); setIsOpen(false); }, className: "px-4 py-3 hover:bg-gray-50 cursor-pointer text-sm text-gray-700 border-b border-gray-50 last:border-0" }, item.name))),
+            value.trim() !== '' && !exactMatch && (React.createElement("div", { onMouseDown: (e) => {
+                    e.preventDefault();
+                    if (onAdd)
+                        onAdd(value.trim());
+                    setIsOpen(false);
+                }, className: "px-4 py-3 bg-orange-50 text-orange-700 cursor-pointer text-sm font-medium flex items-center gap-2", style: { color: 'var(--primary)', backgroundColor: 'var(--primary)15' } },
+                React.createElement(PlusCircle, { size: 16 }),
+                " Adicionar \"",
+                value,
+                "\"")),
+            filteredItems.length === 0 && value.trim() === '' && (React.createElement("div", { className: "px-4 py-3 text-sm text-gray-400 text-center italic" }, "Digite para pesquisar..."))))));
 };
-
-
-// --- TELA DE BACKUP ---
-const BackupScreen = ({ data, setData, showToast, dbOp, onPrintReport }: any) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
-
-  const handleDownloadPDF = async () => {
-    setIsGeneratingPDF(true);
-    
-    const loadScript = (src: string): Promise<void> => new Promise((resolve, reject) => {
-      if (document.querySelector(`script[src="${src}"]`)) return resolve();
-      const script = document.createElement('script');
-      script.src = src;
-      script.onload = () => resolve();
-      script.onerror = () => reject();
-      document.head.appendChild(script);
+// --- TELA DE DASHBOARD ---
+const DashboardScreen = ({ data }) => {
+    const today = new Date().toISOString().split('T')[0];
+    const todaysTithes = data.tithes.filter((t) => t.date === today);
+    const todayTotal = todaysTithes.reduce((a, b) => a + b.value, 0);
+    const generalTotal = data.tithes.reduce((a, b) => a + b.value, 0);
+    const maxToday = todaysTithes.length > 0 ? Math.max(...todaysTithes.map((t) => t.value)) : 0;
+    const lastTithe = data.tithes.length > 0 ? data.tithes[0] : null;
+    // Preparar dados para o gráfico de barras (Últimos 7 dias)
+    const last7Days = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        return d.toISOString().split('T')[0];
+    }).reverse();
+    const chartData = last7Days.map(date => {
+        const total = data.tithes.filter((t) => t.date === date).reduce((a, b) => a + b.value, 0);
+        return { date, total, label: date.split('-')[2] + '/' + date.split('-')[1] };
     });
-
-    try {
-      // Carrega bibliotecas geradoras de PDF dinamicamente (Ficam salvas no cache para uso offline)
-      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
-      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js');
-      
-      const { jsPDF } = (window as any).jspdf;
-      const doc = new jsPDF();
-      
-      // Cabeçalho
-      doc.setFontSize(20);
-      doc.text(data.settings.churchName, 14, 20);
-      
-      doc.setFontSize(14);
-      doc.setTextColor(100);
-      doc.text("Relatório Detalhado Geral de Dízimos", 14, 30);
-      
-      doc.setFontSize(10);
-      doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 36);
-
-      // Resumo Financeiro
-      const total = data.tithes.reduce((a: number, b: any) => a + b.value, 0);
-      const count = data.tithes.length;
-      const max = count > 0 ? Math.max(...data.tithes.map((t: any) => t.value)) : 0;
-      const avg = count > 0 ? total / count : 0;
-      
-      doc.setTextColor(0);
-      doc.setFontSize(12);
-      doc.text(`Total Arrecadado: ${formatCurrency(total)}`, 14, 50);
-      doc.text(`Quantidade de Lançamentos: ${count}`, 14, 56);
-      doc.text(`Maior Dízimo: ${formatCurrency(max)}`, 110, 50);
-      doc.text(`Ticket Médio: ${formatCurrency(avg)}`, 110, 56);
-      
-      let currentY = 70;
-
-      // Agrupamento por Igreja
-      const byChurch: any = {};
-      data.tithes.forEach((t: any) => {
+    const maxChartVal = Math.max(...chartData.map(d => d.total), 1); // Evitar div por 0
+    // Dados para Gráfico de Pizza (Secretários top 5)
+    const secTotals = {};
+    data.tithes.forEach((t) => {
+        secTotals[t.secretaryName] = (secTotals[t.secretaryName] || 0) + 1;
+    });
+    const secChartData = Object.entries(secTotals)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map((item, i) => ({ name: item[0], count: item[1], color: ['#FF7A00', '#FF9B3D', '#FFB870', '#FFD2A3', '#FFEBD6'][i] }));
+    return (React.createElement("div", { className: "space-y-6" },
+        React.createElement("h2", { className: "text-2xl font-bold text-gray-800" }, "Vis\u00E3o Geral"),
+        React.createElement("div", { className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" },
+            React.createElement(DashCard, { title: "Arrecadado Hoje", value: formatCurrency(todayTotal), subtitle: `${todaysTithes.length} lançamentos`, icon: React.createElement(TrendingUp, { size: 24, className: "text-orange-500", style: { color: 'var(--primary)' } }) }),
+            React.createElement(DashCard, { title: "Maior D\u00EDzimo (Hoje)", value: formatCurrency(maxToday), subtitle: "Maior valor do dia", icon: React.createElement(TrendingUp, { size: 24, className: "text-green-500" }) }),
+            React.createElement(DashCard, { title: "Total Geral Hist\u00F3rico", value: formatCurrency(generalTotal), subtitle: `${data.tithes.length} registros no total`, icon: React.createElement(PieChart, { size: 24, className: "text-blue-500" }), bg: "bg-gray-900 text-white", textClass: "text-white", subClass: "text-gray-400" }),
+            React.createElement("div", { className: "bg-white rounded-2xl p-5 shadow-sm border border-gray-100 flex flex-col justify-between" },
+                React.createElement("div", { className: "text-sm font-medium text-gray-500 mb-2" }, "\u00DAltimo Lan\u00E7amento"),
+                lastTithe ? (React.createElement("div", null,
+                    React.createElement("div", { className: "font-bold text-gray-800 text-lg truncate" }, lastTithe.memberName),
+                    React.createElement("div", { className: "text-xl font-bold", style: { color: 'var(--primary)' } }, formatCurrency(lastTithe.value)),
+                    React.createElement("div", { className: "text-xs text-gray-400 mt-1" },
+                        formatDate(lastTithe.date),
+                        " \u00E0s ",
+                        lastTithe.time))) : (React.createElement("div", { className: "text-gray-400 italic" }, "Nenhum registro")))),
+        React.createElement("div", { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" },
+            React.createElement("div", { className: "bg-white rounded-2xl p-6 shadow-sm border border-gray-100 lg:col-span-2" },
+                React.createElement("h3", { className: "text-lg font-bold text-gray-800 mb-6" }, "Arrecada\u00E7\u00E3o dos \u00DAltimos 7 Dias"),
+                React.createElement("div", { className: "h-64 flex items-end justify-between gap-2 pt-4" }, chartData.map((d, i) => {
+                    const heightPct = (d.total / maxChartVal) * 100;
+                    return (React.createElement("div", { key: i, className: "flex flex-col items-center flex-1 group relative" },
+                        React.createElement("div", { className: "absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-gray-800 text-white text-xs py-1 px-2 rounded pointer-events-none whitespace-nowrap z-10" }, formatCurrency(d.total)),
+                        React.createElement("div", { className: "w-full max-w-[40px] bg-orange-100 rounded-t-sm relative flex items-end justify-center", style: { height: '100%' } },
+                            React.createElement("div", { className: "w-full rounded-t-sm transition-all duration-500 hover:opacity-80", style: { height: `${heightPct}%`, backgroundColor: 'var(--primary)' } })),
+                        React.createElement("span", { className: "text-xs text-gray-500 mt-2" }, d.label)));
+                }))),
+            React.createElement("div", { className: "bg-white rounded-2xl p-6 shadow-sm border border-gray-100" },
+                React.createElement("h3", { className: "text-lg font-bold text-gray-800 mb-6" }, "Top Secret\u00E1rios (Qtd.)"),
+                React.createElement("div", { className: "space-y-4" },
+                    secChartData.length === 0 ? React.createElement("p", { className: "text-gray-400 text-sm" }, "Sem dados suficientes.") : null,
+                    secChartData.map((sec, i) => (React.createElement("div", { key: i, className: "flex items-center gap-3" },
+                        React.createElement("div", { className: "w-12 text-sm font-bold text-right" },
+                            sec.count,
+                            "x"),
+                        React.createElement("div", { className: "flex-1 bg-gray-100 h-3 rounded-full overflow-hidden" },
+                            React.createElement("div", { className: "h-full rounded-full", style: { width: `${(sec.count / secChartData[0].count) * 100}%`, backgroundColor: sec.color } })),
+                        React.createElement("div", { className: "w-24 text-xs text-gray-600 truncate" }, sec.name)))))))));
+};
+const DashCard = ({ title, value, subtitle, icon, bg = "bg-white", textClass = "text-gray-800", subClass = "text-gray-500" }) => (React.createElement("div", { className: `${bg} rounded-2xl p-5 shadow-sm border border-gray-100 flex flex-col justify-between relative overflow-hidden` },
+    React.createElement("div", { className: "flex justify-between items-start mb-2 z-10" },
+        React.createElement("div", { className: `text-sm font-medium ${subClass}` }, title),
+        React.createElement("div", { className: "p-2 bg-gray-50/20 rounded-lg" }, icon)),
+    React.createElement("div", { className: `text-2xl sm:text-3xl font-bold tracking-tight mb-1 z-10 ${textClass}` }, value),
+    React.createElement("div", { className: `text-xs z-10 ${subClass}` }, subtitle)));
+// --- TELA DE HISTÓRICO GERAL ---
+const HistoryScreen = ({ data, saveData, showToast }) => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [dateFilter, setDateFilter] = useState('');
+    const [itemsToShow, setItemsToShow] = useState(50);
+    const [editingItem, setEditingItem] = useState(null);
+    const [editValue, setEditValue] = useState('');
+    const [editChurch, setEditChurch] = useState('');
+    const [editObs, setEditObs] = useState('');
+    const filteredData = data.tithes.filter((t) => {
+        const matchSearch = t.memberName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            t.secretaryName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (t.churchName && t.churchName.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            t.value.toString().includes(searchTerm);
+        const matchDate = dateFilter ? t.date === dateFilter : true;
+        return matchSearch && matchDate;
+    });
+    const handleDelete = async (item) => {
+        if (window.confirm(`Tem certeza que deseja excluir o registro de ${item.memberName} no valor de ${formatCurrency(item.value)}?\nEsta ação não pode ser desfeita e afetará os totais.`)) {
+            await saveData('tithes', item, 'delete');
+            showToast('Registro excluído e arquivado com sucesso.');
+        }
+    };
+    const startEdit = (item) => {
+        setEditingItem(item);
+        setEditValue(formatCurrency(item.value));
+        setEditChurch(item.churchName || '');
+        setEditObs(item.observation || '');
+    };
+    const saveEdit = async () => {
+        const val = parseCurrency(editValue);
+        if (val <= 0)
+            return showToast('Valor inválido', 'error');
+        const updated = {
+            ...editingItem,
+            value: val,
+            churchName: editChurch,
+            observation: editObs,
+            updatedAt: Date.now(),
+            updateNote: 'Editado via Histórico'
+        };
+        await saveData('tithes', updated);
+        setEditingItem(null);
+        showToast('Registro atualizado.');
+    };
+    const exportCSV = () => {
+        const headers = ["ID", "Data", "Hora", "Membro", "Valor", "Secretário", "Igreja", "Observação"];
+        const rows = filteredData.map((t) => [
+            t.id, formatDate(t.date), t.time, `"${t.memberName}"`, t.value, `"${t.secretaryName}"`, `"${t.churchName || ''}"`, `"${t.observation || ''}"`
+        ]);
+        let csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `relatorio_dizimos_${new Date().getTime()}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+    const printReport = () => {
+        window.print();
+    };
+    return (React.createElement("div", { className: "bg-white rounded-2xl shadow-sm border border-gray-100 p-6 h-full flex flex-col print:shadow-none print:border-none print:p-0" },
+        React.createElement("div", { className: "flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4 print:hidden" },
+            React.createElement("h2", { className: "text-2xl font-bold text-gray-800" }, "Hist\u00F3rico Completo"),
+            React.createElement("div", { className: "flex gap-2" },
+                React.createElement("button", { onClick: exportCSV, className: "flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors" },
+                    React.createElement(Download, { size: 16 }),
+                    " CSV"),
+                React.createElement("button", { onClick: printReport, className: "flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors" },
+                    React.createElement(Printer, { size: 16 }),
+                    " Imprimir PDF"))),
+        React.createElement("div", { className: "hidden print:block mb-6 text-center" },
+            React.createElement("h1", { className: "text-2xl font-bold" }, data.settings.churchName),
+            React.createElement("h2", { className: "text-lg" }, "Relat\u00F3rio de D\u00EDzimos"),
+            React.createElement("p", { className: "text-sm text-gray-500" },
+                "Impresso em: ",
+                new Date().toLocaleString('pt-BR'))),
+        React.createElement("div", { className: "grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 print:hidden" },
+            React.createElement("div", { className: "relative" },
+                React.createElement(Search, { size: 18, className: "absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" }),
+                React.createElement("input", { type: "text", placeholder: "Pesquisar membro, secret\u00E1rio ou valor...", value: searchTerm, onChange: (e) => setSearchTerm(e.target.value), className: "w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:border-orange-500 outline-none text-sm" })),
+            React.createElement("div", { className: "relative" },
+                React.createElement(Calendar, { size: 18, className: "absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" }),
+                React.createElement("input", { type: "date", value: dateFilter, onChange: (e) => setDateFilter(e.target.value), className: "w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:border-orange-500 outline-none text-sm" }))),
+        React.createElement("div", { className: "flex-1 overflow-y-auto" },
+            React.createElement("ul", { className: "space-y-2" },
+                filteredData.slice(0, itemsToShow).map((tithe) => (React.createElement("li", { key: tithe.id, className: "p-4 bg-gray-50 rounded-lg border border-gray-100 hover:border-orange-200 transition-colors print:border-gray-300 print:break-inside-avoid" }, editingItem?.id === tithe.id ? (React.createElement("div", { className: "space-y-3" },
+                    React.createElement("div", { className: "grid grid-cols-2 gap-2" },
+                        React.createElement("input", { type: "text", value: editValue, onChange: (e) => setEditValue(e.target.value), className: "border border-gray-300 rounded p-2 text-sm", placeholder: "Valor" }),
+                        React.createElement("input", { type: "text", value: editChurch, onChange: (e) => setEditChurch(e.target.value), className: "border border-gray-300 rounded p-2 text-sm", placeholder: "Igreja" })),
+                    React.createElement("textarea", { value: editObs, onChange: (e) => setEditObs(e.target.value), className: "w-full border border-gray-300 rounded p-2 text-sm resize-none h-16", placeholder: "Observa\u00E7\u00E3o" }),
+                    React.createElement("div", { className: "flex gap-2" },
+                        React.createElement("button", { onClick: saveEdit, className: "flex-1 bg-green-500 text-white py-2 rounded text-sm font-medium hover:bg-green-600" },
+                            React.createElement(Save, { size: 16, className: "inline mr-1" }),
+                            " Salvar"),
+                        React.createElement("button", { onClick: () => setEditingItem(null), className: "flex-1 bg-gray-300 text-gray-700 py-2 rounded text-sm font-medium hover:bg-gray-400" }, "Cancelar")))) : (React.createElement("div", { className: "flex justify-between items-start print:flex-col" },
+                    React.createElement("div", { className: "flex-1" },
+                        React.createElement("div", { className: "font-bold text-gray-800" }, tithe.memberName),
+                        React.createElement("div", { className: "text-xs text-gray-500 mt-1 space-y-0.5" },
+                            React.createElement("div", null,
+                                "\uD83D\uDCC5 ",
+                                formatDate(tithe.date),
+                                " \u00E0s ",
+                                tithe.time),
+                            React.createElement("div", null,
+                                "\uD83D\uDC64 ",
+                                tithe.secretaryName),
+                            tithe.churchName && React.createElement("div", null,
+                                "\u26EA ",
+                                tithe.churchName),
+                            tithe.observation && React.createElement("div", { className: "italic" },
+                                "\"",
+                                tithe.observation,
+                                "\""))),
+                    React.createElement("div", { className: "text-right ml-4 print:ml-0 print:mt-2" },
+                        React.createElement("div", { className: "text-lg font-bold text-gray-900" }, formatCurrency(tithe.value)),
+                        React.createElement("div", { className: "flex gap-2 mt-2 print:hidden" },
+                            React.createElement("button", { onClick: () => startEdit(tithe), className: "p-1 text-blue-600 hover:bg-blue-50 rounded" },
+                                React.createElement(Edit, { size: 16 })),
+                            React.createElement("button", { onClick: () => handleDelete(tithe), className: "p-1 text-red-600 hover:bg-red-50 rounded" },
+                                React.createElement(Trash2, { size: 16 }))))))))),
+                filteredData.length === 0 && (React.createElement("li", { className: "p-8 text-center text-gray-400" }, "Nenhum registro encontrado."))))));
+};
+// --- TELA DE CRUD (Membros, Secretários, Igrejas) ---
+const CRUDScreen = ({ type, title, data, saveData, showToast }) => {
+    const [newName, setNewName] = useState('');
+    const [editingId, setEditingId] = useState(null);
+    const [editName, setEditName] = useState('');
+    const items = data[type];
+    const handleAdd = async () => {
+        if (!newName.trim()) {
+            showToast('Digite um nome válido.', 'error');
+            return;
+        }
+        const newItem = { id: generateId(), name: newName.trim(), createdAt: Date.now() };
+        await saveData(type, newItem);
+        setNewName('');
+        showToast(`${title.slice(0, -1)} adicionado com sucesso!`);
+    };
+    const handleEdit = async (item) => {
+        if (!editName.trim()) {
+            showToast('Digite um nome válido.', 'error');
+            return;
+        }
+        const updated = { ...item, name: editName.trim() };
+        await saveData(type, updated);
+        setEditingId(null);
+        showToast(`${title.slice(0, -1)} atualizado com sucesso!`);
+    };
+    const handleDelete = async (item) => {
+        if (window.confirm(`Tem certeza que deseja excluir "${item.name}"?`)) {
+            await saveData(type, item, 'delete');
+            showToast(`${title.slice(0, -1)} removido com sucesso!`);
+        }
+    };
+    return (React.createElement("div", { className: "max-w-2xl mx-auto" },
+        React.createElement("h2", { className: "text-2xl font-bold text-gray-800 mb-6" }, title),
+        React.createElement("div", { className: "bg-white rounded-2xl shadow-sm border border-gray-100 p-6 mb-6" },
+            React.createElement("div", { className: "flex gap-2" },
+                React.createElement("input", { type: "text", value: newName, onChange: (e) => setNewName(e.target.value), onKeyPress: (e) => e.key === 'Enter' && handleAdd(), placeholder: `Digite o nome do novo ${title.toLowerCase().slice(0, -1)}...`, className: "flex-1 border border-gray-300 rounded-lg p-3 text-gray-800 focus:border-orange-500 outline-none" }),
+                React.createElement("button", { onClick: handleAdd, className: "px-6 py-3 font-bold text-white rounded-lg shadow-md transition-all hover:-translate-y-0.5", style: { backgroundColor: 'var(--primary)' } },
+                    React.createElement(PlusCircle, { size: 20, className: "inline mr-2" }),
+                    " Adicionar"))),
+        React.createElement("div", { className: "bg-white rounded-2xl shadow-sm border border-gray-100 p-6" },
+            React.createElement("ul", { className: "space-y-2" },
+                items.map((item) => (React.createElement("li", { key: item.id, className: "p-4 bg-gray-50 rounded-lg border border-gray-100 flex justify-between items-center hover:border-orange-200 transition-colors" }, editingId === item.id ? (React.createElement("div", { className: "flex-1 flex gap-2" },
+                    React.createElement("input", { type: "text", value: editName, onChange: (e) => setEditName(e.target.value), className: "flex-1 border border-gray-300 rounded p-2 text-sm", autoFocus: true }),
+                    React.createElement("button", { onClick: () => handleEdit(item), className: "px-3 py-2 bg-green-500 text-white rounded text-sm font-medium hover:bg-green-600" },
+                        React.createElement(Save, { size: 16 })),
+                    React.createElement("button", { onClick: () => setEditingId(null), className: "px-3 py-2 bg-gray-300 text-gray-700 rounded text-sm font-medium hover:bg-gray-400" }, "Cancelar"))) : (React.createElement(React.Fragment, null,
+                    React.createElement("span", { className: "font-medium text-gray-800" }, item.name),
+                    React.createElement("div", { className: "flex gap-2" },
+                        React.createElement("button", { onClick: () => { setEditingId(item.id); setEditName(item.name); }, className: "p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors" },
+                            React.createElement(Edit, { size: 16 })),
+                        React.createElement("button", { onClick: () => handleDelete(item), className: "p-2 text-red-600 hover:bg-red-50 rounded transition-colors" },
+                            React.createElement(Trash2, { size: 16 })))))))),
+                items.length === 0 && (React.createElement("li", { className: "p-8 text-center text-gray-400" }, "Nenhum registro encontrado."))))));
+};
+// --- TELA DE BACKUP ---
+const BackupScreen = ({ data, setData, showToast, dbOp, onPrintReport }) => {
+    const fileInputRef = useRef(null);
+    const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+    const handleDownloadPDF = async () => {
+        setIsGeneratingPDF(true);
+        const loadScript = (src) => new Promise((resolve, reject) => {
+            if (document.querySelector(`script[src="${src}"]`))
+                return resolve();
+            const script = document.createElement('script');
+            script.src = src;
+            script.onload = () => resolve();
+            script.onerror = () => reject();
+            document.head.appendChild(script);
+        });
+        try {
+            // Carrega bibliotecas geradoras de PDF dinamicamente (Ficam salvas no cache para uso offline)
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js');
+            await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js');
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            // Cabeçalho
+            doc.setFontSize(20);
+            doc.text(data.settings.churchName, 14, 20);
+            doc.setFontSize(14);
+            doc.setTextColor(100);
+            doc.text("Relatório Detalhado Geral de Dízimos", 14, 30);
+            doc.setFontSize(10);
+            doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 36);
+            // Resumo Financeiro
+            const total = data.tithes.reduce((a, b) => a + b.value, 0);
+            const count = data.tithes.length;
+            const max = count > 0 ? Math.max(...data.tithes.map((t) => t.value)) : 0;
+            const avg = count > 0 ? total / count : 0;
+            doc.setTextColor(0);
+            doc.setFontSize(12);
+            doc.text(`Total Arrecadado: ${formatCurrency(total)}`, 14, 50);
+            doc.text(`Quantidade de Lançamentos: ${count}`, 14, 56);
+            doc.text(`Maior Dízimo: ${formatCurrency(max)}`, 110, 50);
+            doc.text(`Ticket Médio: ${formatCurrency(avg)}`, 110, 56);
+            let currentY = 70;
+            // Agrupamento por Igreja
+            const byChurch = {};
+            data.tithes.forEach((t) => {
+                const name = t.churchName || 'Não informada';
+                byChurch[name] = (byChurch[name] || 0) + t.value;
+            });
+            if (Object.keys(byChurch).length > 0) {
+                doc.setFontSize(11);
+                doc.setFont(undefined, 'bold');
+                doc.text("Arrecadação por Congregação", 14, currentY);
+                currentY += 5;
+                const churchRows = Object.entries(byChurch)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([name, val]) => [name, formatCurrency(val)]);
+                doc.autoTable({
+                    startY: currentY,
+                    head: [["Congregação", "Total Arrecadado"]],
+                    body: churchRows,
+                    theme: 'grid',
+                    headStyles: { fillColor: [230, 230, 230], textColor: [0, 0, 0], fontStyle: 'bold' },
+                    margin: { bottom: 10 }
+                });
+                currentY = doc.lastAutoTable.finalY + 15;
+            }
+            // Histórico
+            const tableColumn = ["Data", "Membro", "Igreja", "Secretário", "Valor"];
+            const tableRows = [];
+            const sortedTithes = [...data.tithes].sort((a, b) => b.timestamp - a.timestamp);
+            sortedTithes.forEach((t) => {
+                tableRows.push([
+                    formatDate(t.date),
+                    t.memberName,
+                    t.churchName || 'Não informada',
+                    t.secretaryName,
+                    formatCurrency(t.value)
+                ]);
+            });
+            // Cor primária dinâmica configurada pelo usuário
+            const hexToRgb = (hex) => {
+                let result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+                return result ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)] : [255, 122, 0];
+            };
+            const primaryRgb = hexToRgb(data.settings.primaryColor || '#FF7A00');
+            doc.setFontSize(11);
+            doc.setFont(undefined, 'bold');
+            doc.text("Histórico de Lançamentos", 14, currentY - 5);
+            doc.autoTable({
+                startY: currentY,
+                head: [tableColumn],
+                body: tableRows,
+                theme: 'striped',
+                headStyles: { fillColor: primaryRgb },
+                styles: { fontSize: 9 }
+            });
+            const safeDate = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+            doc.save(`Relatorio_Dizimos_${safeDate}.pdf`);
+            showToast("PDF baixado com sucesso!");
+        }
+        catch (error) {
+            console.error("Erro ao gerar PDF:", error);
+            showToast("Motor PDF indisponível offline. Redirecionando para impressão nativa...", "warning");
+            // Fallback: Chama a tela de impressão nativa como plano B seguro.
+            if (onPrintReport)
+                onPrintReport();
+        }
+        finally {
+            setIsGeneratingPDF(false);
+        }
+    };
+    const exportBackup = async () => {
+        const backupData = {
+            version: 1,
+            date: new Date().toISOString(),
+            tithes: data.tithes,
+            members: data.members,
+            secretaries: data.secretaries,
+            churches: data.churches || [],
+            settings: { ...data.settings, lastBackup: Date.now() }
+        };
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData));
+        const dlAnchorElem = document.createElement('a');
+        dlAnchorElem.setAttribute("href", dataStr);
+        dlAnchorElem.setAttribute("download", `backup_dizimos_${new Date().getTime()}.json`);
+        dlAnchorElem.click();
+        // Atualiza data do último backup
+        await dbOp('settings', 'put', backupData.settings);
+        setData((prev) => ({ ...prev, settings: backupData.settings }));
+        showToast('Backup exportado com sucesso!');
+    };
+    const handleImport = (e) => {
+        const file = e.target.files?.[0];
+        if (!file)
+            return;
+        if (!window.confirm('ATENÇÃO: Importar um backup irá APAGAR todos os dados atuais e substituí-los pelos dados do arquivo. Tem certeza?')) {
+            e.target.value = '';
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const importedData = JSON.parse(event.target?.result);
+                if (!importedData.tithes || !importedData.members) {
+                    throw new Error("Arquivo de backup inválido.");
+                }
+                // Limpar DB
+                await dbOp('tithes', 'clear');
+                await dbOp('members', 'clear');
+                await dbOp('secretaries', 'clear');
+                await dbOp('churches', 'clear').catch(() => console.log('Tabela churches recém criada'));
+                await dbOp('settings', 'clear');
+                // Inserir novos dados (usando transações massivas seria melhor, mas promessas sequenciais servem aqui devido ao tamanho local)
+                for (let t of importedData.tithes)
+                    await dbOp('tithes', 'put', t);
+                for (let m of importedData.members)
+                    await dbOp('members', 'put', m);
+                for (let s of importedData.secretaries)
+                    await dbOp('secretaries', 'put', s);
+                if (importedData.churches) {
+                    for (let c of importedData.churches)
+                        await dbOp('churches', 'put', c);
+                }
+                if (importedData.settings)
+                    await dbOp('settings', 'put', importedData.settings);
+                setData(importedData);
+                showToast('Backup restaurado com sucesso! Sistema atualizado.');
+            }
+            catch (error) {
+                console.error(error);
+                showToast('Erro ao importar backup. Arquivo corrompido ou inválido.', 'error');
+            }
+            e.target.value = '';
+        };
+        reader.readAsText(file);
+    };
+    const lastBackupStr = data.settings.lastBackup ? new Date(data.settings.lastBackup).toLocaleString('pt-BR') : 'Nunca realizado';
+    return (React.createElement("div", { className: "max-w-3xl mx-auto" },
+        React.createElement("h2", { className: "text-2xl font-bold text-gray-800 mb-6" }, "Backup e Restaura\u00E7\u00E3o"),
+        React.createElement("div", { className: "bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-8" },
+            React.createElement("div", { className: "flex items-start gap-4 p-4 bg-blue-50 text-blue-800 rounded-xl" },
+                React.createElement(FileText, { size: 24, className: "shrink-0 mt-1" }),
+                React.createElement("p", { className: "text-sm" },
+                    React.createElement("strong", null, "Como funciona o armazenamento?"),
+                    " Todos os dados deste sistema ficam salvos ",
+                    React.createElement("em", null, "exclusivamente"),
+                    " no seu navegador (localStorage). Se voc\u00EA formatar o computador ou limpar os dados do navegador, voc\u00EA perder\u00E1 tudo. ",
+                    React.createElement("strong", null, "Fa\u00E7a backups regularmente!"))),
+            React.createElement("div", { className: "border-t border-gray-100 pt-6" },
+                React.createElement("h3", { className: "text-lg font-bold text-gray-800 mb-2" }, "Relat\u00F3rio Completo (PDF A4)"),
+                React.createElement("p", { className: "text-sm text-gray-500 mb-4" },
+                    "Gera um relat\u00F3rio gerencial detalhado com o resumo financeiro, arrecada\u00E7\u00F5es por congrega\u00E7\u00E3o e todo o hist\u00F3rico de lan\u00E7amentos. ",
+                    React.createElement("strong", null, "O download ser\u00E1 iniciado automaticamente.")),
+                React.createElement("div", { className: "flex items-center gap-4" },
+                    React.createElement("button", { onClick: handleDownloadPDF, disabled: isGeneratingPDF, className: `flex items-center gap-2 px-6 py-3 font-bold text-white rounded-xl shadow-md transition-all transform hover:-translate-y-0.5 ${isGeneratingPDF ? 'opacity-70 cursor-not-allowed' : ''}`, style: { backgroundColor: 'var(--primary)' } },
+                        React.createElement(Printer, { size: 20 }),
+                        " ",
+                        isGeneratingPDF ? 'Gerando PDF...' : 'Baixar Relatório em PDF'))),
+            React.createElement("div", { className: "border-t border-gray-100 pt-6" },
+                React.createElement("h3", { className: "text-lg font-bold text-gray-800 mb-2" }, "Backup de Seguran\u00E7a (Arquivo JSON)"),
+                React.createElement("p", { className: "text-sm text-gray-500 mb-4" },
+                    "Gera um arquivo de sistema contendo os dados brutos. Utilize esta op\u00E7\u00E3o ",
+                    React.createElement("strong", null, "exclusivamente"),
+                    " para salvar um backup em Pen-drive ou para restaurar o sistema em outro computador."),
+                React.createElement("div", { className: "flex flex-col sm:flex-row sm:items-center gap-4" },
+                    React.createElement("button", { onClick: exportBackup, className: "flex items-center justify-center gap-2 px-6 py-3 font-bold text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-all border border-gray-200" },
+                        React.createElement(Download, { size: 20 }),
+                        " Exportar Arquivo JSON"),
+                    React.createElement("span", { className: "text-xs text-gray-400" },
+                        "\u00DAltimo backup: ",
+                        lastBackupStr))),
+            React.createElement("div", { className: "border-t border-gray-100 pt-6" },
+                React.createElement("h3", { className: "text-lg font-bold text-gray-800 mb-2 text-red-600" }, "Importar Dados (Restaurar)"),
+                React.createElement("p", { className: "text-sm text-gray-500 mb-4" },
+                    "Carregue um arquivo de backup (.json) para restaurar o sistema. ",
+                    React.createElement("strong", null, "Cuidado: isso apagar\u00E1 os dados atuais do navegador!")),
+                React.createElement("input", { type: "file", accept: ".json", ref: fileInputRef, onChange: handleImport, className: "hidden" }),
+                React.createElement("button", { onClick: () => fileInputRef.current?.click(), className: "flex items-center gap-2 px-6 py-3 font-bold text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-all border border-gray-200" },
+                    React.createElement(Upload, { size: 20 }),
+                    " Selecionar Arquivo de Backup")))));
+};
+// --- COMPONENTE DE RELATÓRIO DETALHADO (A4) ---
+const DetailedReport = ({ data, onDone }) => {
+    useEffect(() => {
+        // Altera o título temporariamente para que o arquivo PDF assuma este nome
+        const originalTitle = document.title;
+        document.title = `Relatorio_Dizimos_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}`;
+        // Aguarda o React renderizar a página antes de abrir o diálogo de impressão
+        const timer = setTimeout(() => {
+            window.print();
+            onDone(); // Volta para a tela do sistema ao fechar a impressão
+            document.title = originalTitle;
+        }, 800);
+        return () => clearTimeout(timer);
+    }, [onDone]);
+    const total = data.tithes.reduce((a, b) => a + b.value, 0);
+    const count = data.tithes.length;
+    const max = count > 0 ? Math.max(...data.tithes.map((t) => t.value)) : 0;
+    const avg = count > 0 ? total / count : 0;
+    // Agrupamento por Igreja
+    const byChurch = {};
+    data.tithes.forEach((t) => {
         const name = t.churchName || 'Não informada';
         byChurch[name] = (byChurch[name] || 0) + t.value;
-      });
-
-      if (Object.keys(byChurch).length > 0) {
-        doc.setFontSize(11);
-        doc.setFont(undefined, 'bold');
-        doc.text("Arrecadação por Congregação", 14, currentY);
-        currentY += 5;
-        
-        const churchRows = Object.entries(byChurch)
-          .sort((a: any, b: any) => b[1] - a[1])
-          .map(([name, val]: any) => [name, formatCurrency(val)]);
-          
-        (doc as any).autoTable({
-          startY: currentY,
-          head: [["Congregação", "Total Arrecadado"]],
-          body: churchRows,
-          theme: 'grid',
-          headStyles: { fillColor: [230, 230, 230], textColor: [0,0,0], fontStyle: 'bold' },
-          margin: { bottom: 10 }
-        });
-        currentY = (doc as any).lastAutoTable.finalY + 15;
-      }
-
-      // Histórico
-      const tableColumn = ["Data", "Membro", "Igreja", "Secretário", "Valor"];
-      const tableRows: any[] = [];
-      
-      const sortedTithes = [...data.tithes].sort((a: any, b: any) => b.timestamp - a.timestamp);
-      sortedTithes.forEach((t: any) => {
-        tableRows.push([
-          formatDate(t.date),
-          t.memberName,
-          t.churchName || 'Não informada',
-          t.secretaryName,
-          formatCurrency(t.value)
-        ]);
-      });
-
-      // Cor primária dinâmica configurada pelo usuário
-      const hexToRgb = (hex: string) => {
-        let result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-        return result ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)] : [255, 122, 0];
-      };
-      const primaryRgb = hexToRgb((data.settings.primaryColor as string) || '#FF7A00');
-
-      doc.setFontSize(11);
-      doc.setFont(undefined, 'bold');
-      doc.text("Histórico de Lançamentos", 14, currentY - 5);
-
-      (doc as any).autoTable({
-        startY: currentY,
-        head: [tableColumn],
-        body: tableRows,
-        theme: 'striped',
-        headStyles: { fillColor: primaryRgb },
-        styles: { fontSize: 9 }
-      });
-      
-      const safeDate = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
-      doc.save(`Relatorio_Dizimos_${safeDate}.pdf`);
-      
-      showToast("PDF baixado com sucesso!");
-    } catch (error) {
-      console.error("Erro ao gerar PDF:", error);
-      showToast("Motor PDF indisponível offline. Redirecionando para impressão nativa...", "warning");
-      // Fallback: Chama a tela de impressão nativa como plano B seguro.
-      if (onPrintReport) onPrintReport();
-    } finally {
-      setIsGeneratingPDF(false);
-    }
-  };
-
-  const exportBackup = async () => {
-    const backupData = {
-      version: 1,
-      date: new Date().toISOString(),
-      tithes: data.tithes,
-      members: data.members,
-      secretaries: data.secretaries,
-      churches: data.churches || [],
-      settings: { ...data.settings, lastBackup: Date.now() }
-    };
-
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData));
-    const dlAnchorElem = document.createElement('a');
-    dlAnchorElem.setAttribute("href", dataStr);
-    dlAnchorElem.setAttribute("download", `backup_dizimos_${new Date().getTime()}.json`);
-    dlAnchorElem.click();
-
-    // Atualiza data do último backup
-    await dbOp('settings', 'put', backupData.settings);
-    setData((prev: any) => ({ ...prev, settings: backupData.settings }));
-    showToast('Backup exportado com sucesso!');
-  };
-
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!window.confirm('ATENÇÃO: Importar um backup irá APAGAR todos os dados atuais e substituí-los pelos dados do arquivo. Tem certeza?')) {
-      e.target.value = '';
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      try {
-        const importedData = JSON.parse(event.target?.result as string);
-        
-        if (!importedData.tithes || !importedData.members) {
-          throw new Error("Arquivo de backup inválido.");
-        }
-
-        // Limpar DB
-        await dbOp('tithes', 'clear');
-        await dbOp('members', 'clear');
-        await dbOp('secretaries', 'clear');
-        await dbOp('churches', 'clear').catch(() => console.log('Tabela churches recém criada'));
-        await dbOp('settings', 'clear');
-
-        // Inserir novos dados (usando transações massivas seria melhor, mas promessas sequenciais servem aqui devido ao tamanho local)
-        for(let t of importedData.tithes) await dbOp('tithes', 'put', t);
-        for(let m of importedData.members) await dbOp('members', 'put', m);
-        for(let s of importedData.secretaries) await dbOp('secretaries', 'put', s);
-        if(importedData.churches) {
-          for(let c of importedData.churches) await dbOp('churches', 'put', c);
-        }
-        if(importedData.settings) await dbOp('settings', 'put', importedData.settings);
-
-        setData(importedData);
-        showToast('Backup restaurado com sucesso! Sistema atualizado.');
-      } catch (error) {
-        console.error(error);
-        showToast('Erro ao importar backup. Arquivo corrompido ou inválido.', 'error');
-      }
-      e.target.value = '';
-    };
-    reader.readAsText(file);
-  };
-
-  const lastBackupStr = data.settings.lastBackup ? new Date(data.settings.lastBackup).toLocaleString('pt-BR') : 'Nunca realizado';
-
-  return (
-    <div className="max-w-3xl mx-auto">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">Backup e Restauração</h2>
-      
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-8">
-        
-        <div className="flex items-start gap-4 p-4 bg-blue-50 text-blue-800 rounded-xl">
-          <FileText size={24} className="shrink-0 mt-1" />
-          <p className="text-sm">
-            <strong>Como funciona o armazenamento?</strong> Todos os dados deste sistema ficam salvos <em>exclusivamente</em> no seu navegador (localStorage). Se você formatar o computador ou limpar os dados do navegador, você perderá tudo. <strong>Faça backups regularmente!</strong>
-          </p>
-        </div>
-
-        <div className="border-t border-gray-100 pt-6">
-          <h3 className="text-lg font-bold text-gray-800 mb-2">Relatório Completo (PDF A4)</h3>
-          <p className="text-sm text-gray-500 mb-4">Gera um relatório gerencial detalhado com o resumo financeiro, arrecadações por congregação e todo o histórico de lançamentos. <strong>O download será iniciado automaticamente.</strong></p>
-          <div className="flex items-center gap-4">
-            <button 
-              onClick={handleDownloadPDF}
-              disabled={isGeneratingPDF}
-              className={`flex items-center gap-2 px-6 py-3 font-bold text-white rounded-xl shadow-md transition-all transform hover:-translate-y-0.5 ${isGeneratingPDF ? 'opacity-70 cursor-not-allowed' : ''}`}
-              style={{ backgroundColor: 'var(--primary)' }}
-            >
-              <Printer size={20} /> {isGeneratingPDF ? 'Gerando PDF...' : 'Baixar Relatório em PDF'}
-            </button>
-          </div>
-        </div>
-
-        <div className="border-t border-gray-100 pt-6">
-          <h3 className="text-lg font-bold text-gray-800 mb-2">Backup de Segurança (Arquivo JSON)</h3>
-          <p className="text-sm text-gray-500 mb-4">Gera um arquivo de sistema contendo os dados brutos. Utilize esta opção <strong>exclusivamente</strong> para salvar um backup em Pen-drive ou para restaurar o sistema em outro computador.</p>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-            <button 
-              onClick={exportBackup}
-              className="flex items-center justify-center gap-2 px-6 py-3 font-bold text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-all border border-gray-200"
-            >
-              <Download size={20} /> Exportar Arquivo JSON
-            </button>
-            <span className="text-xs text-gray-400">Último backup: {lastBackupStr}</span>
-          </div>
-        </div>
-
-        <div className="border-t border-gray-100 pt-6">
-          <h3 className="text-lg font-bold text-gray-800 mb-2 text-red-600">Importar Dados (Restaurar)</h3>
-          <p className="text-sm text-gray-500 mb-4">Carregue um arquivo de backup (.json) para restaurar o sistema. <strong>Cuidado: isso apagará os dados atuais do navegador!</strong></p>
-          
-          <input type="file" accept=".json" ref={fileInputRef} onChange={handleImport} className="hidden" />
-          <button 
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-2 px-6 py-3 font-bold text-gray-700 bg-gray-100 rounded-xl hover:bg-gray-200 transition-all border border-gray-200"
-          >
-            <Upload size={20} /> Selecionar Arquivo de Backup
-          </button>
-        </div>
-
-      </div>
-    </div>
-  );
-};
-
-
-// --- COMPONENTE DE RELATÓRIO DETALHADO (A4) ---
-const DetailedReport = ({ data, onDone }: any) => {
-  useEffect(() => {
-    // Altera o título temporariamente para que o arquivo PDF assuma este nome
-    const originalTitle = document.title;
-    document.title = `Relatorio_Dizimos_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}`;
-    
-    // Aguarda o React renderizar a página antes de abrir o diálogo de impressão
-    const timer = setTimeout(() => {
-      window.print();
-      onDone(); // Volta para a tela do sistema ao fechar a impressão
-      document.title = originalTitle;
-    }, 800);
-    
-    return () => clearTimeout(timer);
-  }, [onDone]);
-
-  const total = data.tithes.reduce((a: number, b: any) => a + b.value, 0);
-  const count = data.tithes.length;
-  const max = count > 0 ? Math.max(...data.tithes.map((t: any) => t.value)) : 0;
-  const avg = count > 0 ? total / count : 0;
-
-  // Agrupamento por Igreja
-  const byChurch: any = {};
-  data.tithes.forEach((t: any) => {
-    const name = t.churchName || 'Não informada';
-    byChurch[name] = (byChurch[name] || 0) + t.value;
-  });
-
-  // Ordenar dízimos por data mais recente
-  const sortedTithes = [...data.tithes].sort((a: any, b: any) => b.timestamp - a.timestamp);
-
-  return (
-    <div className="bg-white text-black min-h-screen font-sans" style={{ padding: '15mm', maxWidth: '210mm', margin: '0 auto' }}>
-      <style>{`
+    });
+    // Ordenar dízimos por data mais recente
+    const sortedTithes = [...data.tithes].sort((a, b) => b.timestamp - a.timestamp);
+    return (React.createElement("div", { className: "bg-white text-black min-h-screen font-sans", style: { padding: '15mm', maxWidth: '210mm', margin: '0 auto' } },
+        React.createElement("style", null, `
         * { box-sizing: border-box; }
         @page { size: A4; margin: 10mm; }
         @media print {
@@ -1299,151 +925,97 @@ const DetailedReport = ({ data, onDone }: any) => {
           /* Esconde botões do browser se houver */
           ::-webkit-scrollbar { display: none; }
         }
-      `}</style>
-      
-      <div className="text-center mb-8 border-b-2 border-gray-800 pb-4">
-        <h1 className="text-3xl font-bold uppercase tracking-wider">{data.settings.churchName}</h1>
-        <h2 className="text-xl font-semibold mt-2 text-gray-700">Relatório Detalhado Geral de Dízimos</h2>
-        <p className="text-sm text-gray-500 mt-1">Gerado em: {new Date().toLocaleString('pt-BR')}</p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-6 mb-8">
-        <div className="border border-gray-300 p-4 rounded-lg avoid-break">
-          <h3 className="text-sm text-gray-500 font-bold uppercase mb-1">Resumo Financeiro</h3>
-          <p className="text-3xl font-bold text-gray-900">{formatCurrency(total)}</p>
-          <p className="text-sm text-gray-600 mt-2 flex justify-between"><span>Ticket Médio:</span> <strong>{formatCurrency(avg)}</strong></p>
-          <p className="text-sm text-gray-600 flex justify-between"><span>Maior Dízimo:</span> <strong className="text-green-600">{formatCurrency(max)}</strong></p>
-        </div>
-        <div className="border border-gray-300 p-4 rounded-lg avoid-break">
-          <h3 className="text-sm text-gray-500 font-bold uppercase mb-1">Estatísticas Gerais</h3>
-          <p className="text-3xl font-bold text-gray-900">{count} <span className="text-lg font-normal text-gray-600">lançamentos</span></p>
-          <p className="text-sm text-gray-600 mt-2 flex justify-between"><span>Membros Cadastrados:</span> <strong>{data.members.length}</strong></p>
-          <p className="text-sm text-gray-600 flex justify-between"><span>Secretários:</span> <strong>{data.secretaries.length}</strong></p>
-        </div>
-      </div>
-
-      {Object.keys(byChurch).length > 0 && (
-        <div className="mb-8 avoid-break">
-          <h3 className="text-lg font-bold mb-3 border-b border-gray-300 pb-1 uppercase tracking-wide text-gray-800">Arrecadação por Congregação</h3>
-          <div className="grid grid-cols-2 gap-4">
-            {Object.entries(byChurch)
-              .sort((a: any, b: any) => b[1] - a[1]) // Maior valor primeiro
-              .map(([name, val]: any) => (
-              <div key={name} className="flex justify-between border-b border-gray-200 py-2">
-                <span className="font-medium text-gray-700">{name}</span>
-                <span className="font-bold">{formatCurrency(val)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="mt-8">
-        <h3 className="text-lg font-bold mb-4 border-b-2 border-gray-800 pb-1 uppercase tracking-wide text-gray-800">Histórico Completo de Lançamentos</h3>
-        <table className="w-full text-left text-sm border-collapse">
-          <thead>
-            <tr className="border-b-2 border-gray-800 text-gray-800">
-              <th className="py-2 px-1 font-bold">Data</th>
-              <th className="py-2 px-1 font-bold">Membro</th>
-              <th className="py-2 px-1 font-bold">Igreja</th>
-              <th className="py-2 px-1 font-bold">Secretário</th>
-              <th className="py-2 px-1 text-right font-bold">Valor</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedTithes.map((t: any) => (
-              <tr key={t.id} className="border-b border-gray-200 avoid-break">
-                <td className="py-2 px-1 whitespace-nowrap">{formatDate(t.date)} <span className="text-xs text-gray-500">{t.time}</span></td>
-                <td className="py-2 px-1 font-medium">{t.memberName}</td>
-                <td className="py-2 px-1 text-gray-600">{t.churchName || 'Não informada'}</td>
-                <td className="py-2 px-1 text-gray-600">{t.secretaryName}</td>
-                <td className="py-2 px-1 text-right font-bold">{formatCurrency(t.value)}</td>
-              </tr>
-            ))}
-            {sortedTithes.length === 0 && (
-              <tr>
-                <td colSpan={5} className="py-4 text-center text-gray-500 italic">Nenhum registro encontrado.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
+      `),
+        React.createElement("div", { className: "text-center mb-8 border-b-2 border-gray-800 pb-4" },
+            React.createElement("h1", { className: "text-3xl font-bold uppercase tracking-wider" }, data.settings.churchName),
+            React.createElement("h2", { className: "text-xl font-semibold mt-2 text-gray-700" }, "Relat\u00F3rio Detalhado Geral de D\u00EDzimos"),
+            React.createElement("p", { className: "text-sm text-gray-500 mt-1" },
+                "Gerado em: ",
+                new Date().toLocaleString('pt-BR'))),
+        React.createElement("div", { className: "grid grid-cols-2 gap-6 mb-8" },
+            React.createElement("div", { className: "border border-gray-300 p-4 rounded-lg avoid-break" },
+                React.createElement("h3", { className: "text-sm text-gray-500 font-bold uppercase mb-1" }, "Resumo Financeiro"),
+                React.createElement("p", { className: "text-3xl font-bold text-gray-900" }, formatCurrency(total)),
+                React.createElement("p", { className: "text-sm text-gray-600 mt-2 flex justify-between" },
+                    React.createElement("span", null, "Ticket M\u00E9dio:"),
+                    " ",
+                    React.createElement("strong", null, formatCurrency(avg))),
+                React.createElement("p", { className: "text-sm text-gray-600 flex justify-between" },
+                    React.createElement("span", null, "Maior D\u00EDzimo:"),
+                    " ",
+                    React.createElement("strong", { className: "text-green-600" }, formatCurrency(max)))),
+            React.createElement("div", { className: "border border-gray-300 p-4 rounded-lg avoid-break" },
+                React.createElement("h3", { className: "text-sm text-gray-500 font-bold uppercase mb-1" }, "Estat\u00EDsticas Gerais"),
+                React.createElement("p", { className: "text-3xl font-bold text-gray-900" },
+                    count,
+                    " ",
+                    React.createElement("span", { className: "text-lg font-normal text-gray-600" }, "lan\u00E7amentos")),
+                React.createElement("p", { className: "text-sm text-gray-600 mt-2 flex justify-between" },
+                    React.createElement("span", null, "Membros Cadastrados:"),
+                    " ",
+                    React.createElement("strong", null, data.members.length)),
+                React.createElement("p", { className: "text-sm text-gray-600 flex justify-between" },
+                    React.createElement("span", null, "Secret\u00E1rios:"),
+                    " ",
+                    React.createElement("strong", null, data.secretaries.length)))),
+        Object.keys(byChurch).length > 0 && (React.createElement("div", { className: "mb-8 avoid-break" },
+            React.createElement("h3", { className: "text-lg font-bold mb-3 border-b border-gray-300 pb-1 uppercase tracking-wide text-gray-800" }, "Arrecada\u00E7\u00E3o por Congrega\u00E7\u00E3o"),
+            React.createElement("div", { className: "grid grid-cols-2 gap-4" }, Object.entries(byChurch)
+                .sort((a, b) => b[1] - a[1]) // Maior valor primeiro
+                .map(([name, val]) => (React.createElement("div", { key: name, className: "flex justify-between border-b border-gray-200 py-2" },
+                React.createElement("span", { className: "font-medium text-gray-700" }, name),
+                React.createElement("span", { className: "font-bold" }, formatCurrency(val)))))))),
+        React.createElement("div", { className: "mt-8" },
+            React.createElement("h3", { className: "text-lg font-bold mb-4 border-b-2 border-gray-800 pb-1 uppercase tracking-wide text-gray-800" }, "Hist\u00F3rico Completo de Lan\u00E7amentos"),
+            React.createElement("table", { className: "w-full text-left text-sm border-collapse" },
+                React.createElement("thead", null,
+                    React.createElement("tr", { className: "border-b-2 border-gray-800 text-gray-800" },
+                        React.createElement("th", { className: "py-2 px-1 font-bold" }, "Data"),
+                        React.createElement("th", { className: "py-2 px-1 font-bold" }, "Membro"),
+                        React.createElement("th", { className: "py-2 px-1 font-bold" }, "Igreja"),
+                        React.createElement("th", { className: "py-2 px-1 font-bold" }, "Secret\u00E1rio"),
+                        React.createElement("th", { className: "py-2 px-1 text-right font-bold" }, "Valor"))),
+                React.createElement("tbody", null,
+                    sortedTithes.map((t) => (React.createElement("tr", { key: t.id, className: "border-b border-gray-200 avoid-break" },
+                        React.createElement("td", { className: "py-2 px-1 whitespace-nowrap" },
+                            formatDate(t.date),
+                            " ",
+                            React.createElement("span", { className: "text-xs text-gray-500" }, t.time)),
+                        React.createElement("td", { className: "py-2 px-1 font-medium" }, t.memberName),
+                        React.createElement("td", { className: "py-2 px-1 text-gray-600" }, t.churchName || 'Não informada'),
+                        React.createElement("td", { className: "py-2 px-1 text-gray-600" }, t.secretaryName),
+                        React.createElement("td", { className: "py-2 px-1 text-right font-bold" }, formatCurrency(t.value))))),
+                    sortedTithes.length === 0 && (React.createElement("tr", null,
+                        React.createElement("td", { colSpan: 5, className: "py-4 text-center text-gray-500 italic" }, "Nenhum registro encontrado."))))))));
 };
-
 // --- TELA DE CONFIGURAÇÕES ---
-const SettingsScreen = ({ data, saveData, showToast }: any) => {
-  const [churchName, setChurchName] = useState(data.settings.churchName || '');
-  const [primaryColor, setPrimaryColor] = useState(data.settings.primaryColor || '#FF7A00');
-
-  const handleSave = async () => {
-    const updatedSettings = { ...data.settings, churchName, primaryColor };
-    await saveData('settings', updatedSettings);
-    showToast('Configurações salvas com sucesso.');
-  };
-
-  const colors: string[] = ['#FF7A00', '#2563EB', '#16A34A', '#DC2626', '#7C3AED', '#4F46E5', '#000000'];
-
-  return (
-    <div className="max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">Configurações do Sistema</h2>
-      
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6">
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Nome da Igreja / Congregação</label>
-          <input 
-            type="text" 
-            value={churchName}
-            onChange={(e) => setChurchName(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg p-3 text-gray-800 focus:border-orange-500 outline-none"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Cor Principal do Sistema</label>
-          <div className="flex gap-3 mb-3">
-            {colors.map(color => (
-              <button
-                key={color}
-                onClick={() => setPrimaryColor(color)}
-                className={`w-10 h-10 rounded-full flex items-center justify-center transition-transform hover:scale-110 ${primaryColor === color ? 'ring-2 ring-offset-2 ring-gray-400' : ''}`}
-                style={{ backgroundColor: color }}
-              >
-                {primaryColor === color && <CheckCircle size={16} color="white" />}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-500">Cor customizada (Hex):</span>
-            <input 
-              type="color" 
-              value={primaryColor}
-              onChange={(e) => setPrimaryColor(e.target.value)}
-              className="h-8 w-14 cursor-pointer"
-            />
-          </div>
-        </div>
-
-        <div className="pt-4 border-t border-gray-100">
-          <button 
-            onClick={handleSave}
-            className="w-full py-4 font-bold text-white rounded-xl shadow-md transition-all hover:-translate-y-0.5"
-            style={{ backgroundColor: 'var(--primary)' }}
-          >
-            Salvar Configurações
-          </button>
-        </div>
-
-      </div>
-    </div>
-  );
+const SettingsScreen = ({ data, saveData, showToast }) => {
+    const [churchName, setChurchName] = useState(data.settings.churchName || '');
+    const [primaryColor, setPrimaryColor] = useState(data.settings.primaryColor || '#FF7A00');
+    const handleSave = async () => {
+        const updatedSettings = { ...data.settings, churchName, primaryColor };
+        await saveData('settings', updatedSettings);
+        showToast('Configurações salvas com sucesso.');
+    };
+    const colors = ['#FF7A00', '#2563EB', '#16A34A', '#DC2626', '#7C3AED', '#4F46E5', '#000000'];
+    return (React.createElement("div", { className: "max-w-2xl mx-auto" },
+        React.createElement("h2", { className: "text-2xl font-bold text-gray-800 mb-6" }, "Configura\u00E7\u00F5es do Sistema"),
+        React.createElement("div", { className: "bg-white rounded-2xl shadow-sm border border-gray-100 p-8 space-y-6" },
+            React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-medium text-gray-700 mb-2" }, "Nome da Igreja / Congrega\u00E7\u00E3o"),
+                React.createElement("input", { type: "text", value: churchName, onChange: (e) => setChurchName(e.target.value), className: "w-full border border-gray-300 rounded-lg p-3 text-gray-800 focus:border-orange-500 outline-none" })),
+            React.createElement("div", null,
+                React.createElement("label", { className: "block text-sm font-medium text-gray-700 mb-2" }, "Cor Principal do Sistema"),
+                React.createElement("div", { className: "flex gap-3 mb-3" }, colors.map(color => (React.createElement("button", { key: color, onClick: () => setPrimaryColor(color), className: `w-10 h-10 rounded-full flex items-center justify-center transition-transform hover:scale-110 ${primaryColor === color ? 'ring-2 ring-offset-2 ring-gray-400' : ''}`, style: { backgroundColor: color } }, primaryColor === color && React.createElement(CheckCircle, { size: 16, color: "white" }))))),
+                React.createElement("div", { className: "flex items-center gap-2" },
+                    React.createElement("span", { className: "text-sm text-gray-500" }, "Cor customizada (Hex):"),
+                    React.createElement("input", { type: "color", value: primaryColor, onChange: (e) => setPrimaryColor(e.target.value), className: "h-8 w-14 cursor-pointer" }))),
+            React.createElement("div", { className: "pt-4 border-t border-gray-100" },
+                React.createElement("button", { onClick: handleSave, className: "w-full py-4 font-bold text-white rounded-xl shadow-md transition-all hover:-translate-y-0.5", style: { backgroundColor: 'var(--primary)' } }, "Salvar Configura\u00E7\u00F5es")))));
 };
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
 
-
-ReactDOM.createRoot(document.getElementById('root')!).render(<App />);
-
+    }
   </script>
 </body>
 </html>
