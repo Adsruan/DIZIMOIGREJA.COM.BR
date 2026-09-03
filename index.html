@@ -99,7 +99,7 @@ const generateId = () => Date.now().toString(36) + Math.random().toString(36).su
 // COMPONENTES PRINCIPAIS
 // ==========================================
 
-export default function App() {
+function App() {
   const [activeTab, setActiveTab] = useState('lancamento');
   const [data, setData] = useState<Record<string, any>>({
     tithes: [],
