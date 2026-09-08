@@ -672,7 +672,18 @@ const CRUDScreen = ({ type, title, data, saveData, showToast }) => {
 const BackupScreen = ({ data, setData, showToast, dbOp, onPrintReport }) => {
     const fileInputRef = useRef(null);
     const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+    const [reportStartDate, setReportStartDate] = useState('');
+    const [reportEndDate, setReportEndDate] = useState('');
     const handleDownloadPDF = async () => {
+        if (reportStartDate && reportEndDate && reportStartDate > reportEndDate) {
+            showToast('A data inicial não pode ser maior que a data final.', 'warning');
+            return;
+        }
+        const reportTithes = data.tithes.filter((t) => {
+            const afterStart = reportStartDate ? t.date >= reportStartDate : true;
+            const beforeEnd = reportEndDate ? t.date <= reportEndDate : true;
+            return afterStart && beforeEnd;
+        });
         setIsGeneratingPDF(true);
         const loadScript = (src) => new Promise((resolve, reject) => {
             if (document.querySelector(`script[src="${src}"]`))
@@ -697,10 +708,15 @@ const BackupScreen = ({ data, setData, showToast, dbOp, onPrintReport }) => {
             doc.text("Relatório Detalhado Geral de Dízimos", 14, 30);
             doc.setFontSize(10);
             doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 14, 36);
+            if (reportStartDate || reportEndDate) {
+                const periodStart = reportStartDate ? formatDate(reportStartDate) : 'início';
+                const periodEnd = reportEndDate ? formatDate(reportEndDate) : 'hoje';
+                doc.text(`Período dos lançamentos: ${periodStart} até ${periodEnd}`, 14, 42);
+            }
             // Resumo Financeiro
-            const total = data.tithes.reduce((a, b) => a + b.value, 0);
-            const count = data.tithes.length;
-            const max = count > 0 ? Math.max(...data.tithes.map((t) => t.value)) : 0;
+            const total = reportTithes.reduce((a, b) => a + b.value, 0);
+            const count = reportTithes.length;
+            const max = count > 0 ? Math.max(...reportTithes.map((t) => t.value)) : 0;
             const avg = count > 0 ? total / count : 0;
             doc.setTextColor(0);
             doc.setFontSize(12);
@@ -711,7 +727,7 @@ const BackupScreen = ({ data, setData, showToast, dbOp, onPrintReport }) => {
             let currentY = 70;
             // Agrupamento por Igreja
             const byChurch = {};
-            data.tithes.forEach((t) => {
+            reportTithes.forEach((t) => {
                 const name = t.churchName || 'Não informada';
                 byChurch[name] = (byChurch[name] || 0) + t.value;
             });
@@ -736,7 +752,7 @@ const BackupScreen = ({ data, setData, showToast, dbOp, onPrintReport }) => {
             // Histórico
             const tableColumn = ["Data", "Membro", "Igreja", "Secretário", "Valor"];
             const tableRows = [];
-            const sortedTithes = [...data.tithes].sort((a, b) => b.timestamp - a.timestamp);
+            const sortedTithes = [...reportTithes].sort((a, b) => b.timestamp - a.timestamp);
             sortedTithes.forEach((t) => {
                 tableRows.push([
                     formatDate(t.date),
@@ -858,8 +874,18 @@ const BackupScreen = ({ data, setData, showToast, dbOp, onPrintReport }) => {
             React.createElement("div", { className: "border-t border-gray-100 pt-6" },
                 React.createElement("h3", { className: "text-lg font-bold text-gray-800 mb-2" }, "Relat\u00F3rio Completo (PDF A4)"),
                 React.createElement("p", { className: "text-sm text-gray-500 mb-4" },
-                    "Gera um relat\u00F3rio gerencial detalhado com o resumo financeiro, arrecada\u00E7\u00F5es por congrega\u00E7\u00E3o e todo o hist\u00F3rico de lan\u00E7amentos. ",
-                    React.createElement("strong", null, "O download ser\u00E1 iniciado automaticamente.")),
+                    "Gera um relat\u00F3rio gerencial detalhado com o resumo financeiro, arrecada\u00E7\u00F5es por congrega\u00E7\u00E3o e o hist\u00F3rico de lan\u00E7amentos do per\u00EDodo selecionado. ",
+                    React.createElement("strong", null, "Se deixar as datas em branco, o relat\u00F3rio completo ser\u00E1 gerado.")),
+                React.createElement("div", { className: "mb-4" },
+                    React.createElement("p", { className: "text-sm font-semibold text-gray-700 mb-2" }, "Filtrar lançamentos por período (opcional)"),
+                    React.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl" },
+                        React.createElement("label", { className: "text-sm text-gray-600" },
+                            React.createElement("span", { className: "block mb-1 font-medium" }, "Data inicial"),
+                            React.createElement("input", { type: "date", value: reportStartDate, onChange: (e) => setReportStartDate(e.target.value), className: "w-full border border-gray-300 rounded-lg px-3 py-2.5 text-gray-800 focus:border-orange-500 outline-none bg-white" })),
+                        React.createElement("label", { className: "text-sm text-gray-600" },
+                            React.createElement("span", { className: "block mb-1 font-medium" }, "Data final"),
+                            React.createElement("input", { type: "date", value: reportEndDate, onChange: (e) => setReportEndDate(e.target.value), className: "w-full border border-gray-300 rounded-lg px-3 py-2.5 text-gray-800 focus:border-orange-500 outline-none bg-white" }))),
+                    (reportStartDate || reportEndDate) && React.createElement("button", { onClick: () => { setReportStartDate(''); setReportEndDate(''); }, className: "mt-2 text-sm font-medium hover:underline", style: { color: 'var(--primary)' } }, "Limpar filtro")),
                 React.createElement("div", { className: "flex items-center gap-4" },
                     React.createElement("button", { onClick: handleDownloadPDF, disabled: isGeneratingPDF, className: `flex items-center gap-2 px-6 py-3 font-bold text-white rounded-xl shadow-md transition-all transform hover:-translate-y-0.5 ${isGeneratingPDF ? 'opacity-70 cursor-not-allowed' : ''}`, style: { backgroundColor: 'var(--primary)' } },
                         React.createElement(Printer, { size: 20 }),
